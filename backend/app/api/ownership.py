@@ -310,8 +310,14 @@ async def learn_readiness_audit():
         },
         {
             "id": "internal_host",
-            "ok": bool(host.get("ok") or host.get("reachable") or host.get("status") == "ok"),
-            "detail": str(host)[:240],
+            "ok": bool(host.get("ok") or host.get("reachable") or host.get("status") == "ok")
+            or not bool(settings.prefer_internal),
+            "detail": (
+                str(host)[:240]
+                if settings.prefer_internal
+                else "skipped: PREFER_INTERNAL=false (teacher-first / cloud deploy)"
+            ),
+            "optional": not bool(settings.prefer_internal),
         },
         {
             "id": "lora_real_train",
