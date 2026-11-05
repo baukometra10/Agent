@@ -1,0 +1,26 @@
+{
+  "name": "spixa-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Spixa by Suppix AI — desktop shell for the web IDE",
+  "main": "main.js",
+  "author": "Suppix AI",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "ai.suppix.spixa",
+    "productName": "Spixa",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "assets/**/*"],
+    "win": { "target": ["nsis", "zip"] },
+    "mac": { "target": ["dmg", "zip"] },
+    "linux": { "target": ["AppImage", "zip"] }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
