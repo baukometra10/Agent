@@ -100,7 +100,7 @@ export function buildSuggestions(ctx: Ctx): Suggestion[] {
   const t = L[lang] || L.en;
   const path = ctx.activePath || ctx.attachments?.[0] || null;
   const ext = extOf(path);
-  const file = path ? path.split(/[\\/]/).pop() : null;
+  const file = path ? path.split(/[\\/]/).pop() || null : null;
   const out: Suggestion[] = [];
 
   if (!ctx.hasMessages) {
