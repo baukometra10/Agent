@@ -146,22 +146,40 @@ class ProjectService:
         slug: str | None = None,
         local_path: str | None = None,
     ) -> Project:
-        """Create a new project folder on the user's Desktop (or chosen path)."""
+        """Create a new project folder on Desktop (local) or WORKSPACES_ROOT (cloud)."""
         from slugify import slugify
 
         project_slug = slug or slugify(name, max_length=80)
+        use_cloud_root = bool(self.settings.cloud_workspaces) or (
+            str(self.settings.app_env or "").lower() == "production" and not local_path
+        )
+
         if local_path:
-            folder = Path(local_path).expanduser()
+            isolation = bind_local_folder(
+                name=name,
+                local_path=Path(local_path).expanduser(),
+                settings=self.settings,
+                slug=project_slug,
+                create_if_missing=True,
+            )
+            bound_local = True
+        elif use_cloud_root:
+            # Railway/cloud: persist under WORKSPACES_ROOT (/data/workspaces)
+            isolation = ensure_project_isolation(
+                name=name, settings=self.settings, slug=project_slug
+            )
+            bound_local = False
         else:
             folder = default_user_projects_root() / project_slug
+            isolation = bind_local_folder(
+                name=name,
+                local_path=folder,
+                settings=self.settings,
+                slug=project_slug,
+                create_if_missing=True,
+            )
+            bound_local = True
 
-        isolation = bind_local_folder(
-            name=name,
-            local_path=folder,
-            settings=self.settings,
-            slug=project_slug,
-            create_if_missing=True,
-        )
         if await self.get_by_slug(isolation.project_slug):
             raise ValueError(f"Project slug already exists: {isolation.project_slug}")
 
@@ -194,8 +212,8 @@ class ProjectService:
             owner_email=owner_email,
             settings={
                 "autonomy": dict(DEFAULT_AUTONOMY),
-                "bound_local": True,
-                "bind_mode": "live_folder",
+                "bound_local": bound_local,
+                "bind_mode": "live_folder" if bound_local else "cloud_workspace",
             },
         )
         self.session.add(project)

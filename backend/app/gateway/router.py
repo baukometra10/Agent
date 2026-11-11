@@ -17,6 +17,7 @@ from app.gateway.catalog import chief_catalog
 from app.gateway.providers import (
     ProviderError,
     anthropic_chat,
+    cursor_cloud_agent_chat,
     openai_chat,
     openai_embed,
     openrouter_chat,
@@ -70,6 +71,8 @@ class ModelGateway:
             return (self.settings.openai_api_key or "").strip()
         if provider == "anthropic":
             return (self.settings.anthropic_api_key or "").strip()
+        if provider == "cursor":
+            return (self.settings.cursor_api_key or "").strip()
         if provider == "internal":
             return "local"
         return ""
@@ -77,24 +80,39 @@ class ModelGateway:
     def _openrouter_ready(self) -> bool:
         return bool((self.settings.openrouter_api_key or "").strip())
 
+    def _cursor_ready(self) -> bool:
+        return bool((self.settings.cursor_api_key or "").strip())
+
     def _use_openrouter_upstream(self) -> bool:
         upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
         return upstream == "openrouter" and self._openrouter_ready()
+
+    def _use_cursor_upstream(self) -> bool:
+        upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
+        return upstream == "cursor" and self._cursor_ready()
 
     def provider_status(self) -> dict[str, Any]:
         openai_ok = bool((self.settings.openai_api_key or "").strip())
         anthropic_ok = bool((self.settings.anthropic_api_key or "").strip())
         openrouter_ok = self._openrouter_ready()
+        cursor_ok = self._cursor_ready()
         internal_hosted = bool((self.settings.internal_model_base_url or "").strip())
         return {
             "force_simulate": bool(self.settings.model_gateway_force_simulate),
             "prefer_internal": bool(self.settings.prefer_internal),
             "teacher_upstream": (self.settings.teacher_upstream or "openrouter"),
             "teacher_upstream_live": self._use_openrouter_upstream()
+            or self._use_cursor_upstream()
             or openai_ok
             or anthropic_ok,
             "chiefs": chief_catalog(openrouter_configured=openrouter_ok),
             "providers": {
+                "cursor": {
+                    "configured": cursor_ok,
+                    "live": cursor_ok and not self.settings.model_gateway_force_simulate,
+                    "tier": "teacher_cloud_agent",
+                    "note": "Cursor Cloud Agents API — coding teacher (poll run.result)",
+                },
                 "openrouter": {
                     "configured": openrouter_ok,
                     "live": openrouter_ok and not self.settings.model_gateway_force_simulate,
@@ -181,6 +199,10 @@ class ModelGateway:
             meta["force_teacher"] = True
             meta["force_provider"] = "openrouter"
             pref = "openrouter"
+        elif pref in {"cursor", "cursor-agent", "cloud-agent"}:
+            meta["force_teacher"] = True
+            meta["force_provider"] = "cursor"
+            pref = "cursor"
         elif pref in {"openai", "gpt", "chatgpt"}:
             meta["force_teacher"] = True
             meta["force_provider"] = "openrouter" if self._use_openrouter_upstream() else "openai"
@@ -397,7 +419,63 @@ class ModelGateway:
         if self.settings.model_gateway_force_simulate:
             return self._simulate(role, model_id, prompt, system, meta, reason="force_simulate")
 
-        use_or = self._use_openrouter_upstream() or str(meta.get("force_provider") or "").lower() == "openrouter"
+        force_provider = str(meta.get("force_provider") or "").lower()
+        use_cursor = (
+            force_provider == "cursor"
+            or self._use_cursor_upstream()
+        ) and role in {ModelRole.coding, ModelRole.reasoning, ModelRole.fast}
+        cursor_key = (self.settings.cursor_api_key or "").strip()
+        if use_cursor and cursor_key:
+            try:
+                content, tin, tout, raw = await cursor_cloud_agent_chat(
+                    api_key=cursor_key,
+                    prompt=prompt,
+                    system=system,
+                    base_url=self.settings.cursor_api_base_url,
+                    repo_url=(self.settings.cursor_default_repo_url or "").strip() or None,
+                    poll_timeout_seconds=float(self.settings.cursor_poll_timeout_seconds),
+                    poll_interval_seconds=float(self.settings.cursor_poll_interval_seconds),
+                )
+                return ModelResponse(
+                    role=role,
+                    model_id="cursor/cloud-agent",
+                    content=content,
+                    tokens_in=tin,
+                    tokens_out=tout,
+                    simulated=False,
+                    route_tier=RouteTier.teacher.value,
+                    raw={
+                        "provider": "cursor",
+                        "upstream": "cursor",
+                        "metadata": meta,
+                        "response": _safe_upstream(raw),
+                    },
+                )
+            except ProviderError as exc:
+                # Fall through to OpenRouter if configured
+                if not self._openrouter_ready():
+                    return ModelResponse(
+                        role=role,
+                        model_id="cursor/cloud-agent",
+                        content=f"[provider-error:cursor] {exc}",
+                        simulated=False,
+                        error=str(exc),
+                        route_tier=RouteTier.teacher.value,
+                        raw={"provider": "cursor", "status": exc.status, "metadata": meta},
+                    )
+            except Exception as exc:  # noqa: BLE001
+                if not self._openrouter_ready():
+                    return ModelResponse(
+                        role=role,
+                        model_id="cursor/cloud-agent",
+                        content=f"[provider-error:cursor] {exc}",
+                        simulated=False,
+                        error=str(exc),
+                        route_tier=RouteTier.teacher.value,
+                        raw={"provider": "cursor", "metadata": meta},
+                    )
+
+        use_or = self._use_openrouter_upstream() or force_provider == "openrouter"
         or_key = (self.settings.openrouter_api_key or "").strip()
 
         # Preferred path: single upstream for all external teachers

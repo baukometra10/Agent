@@ -559,6 +559,10 @@ class MasterConductor:
         binding = mem.get("binding") or {}
         standing = mem.get("standing_instructions") or []
         standing_txt = "\n".join(f"- {s.get('content', '')[:220]}" for s in standing[:10])
+        semantic_hits = ((mem.get("semantic") or {}).get("hits") or [])[:5]
+        semantic_txt = "\n".join(
+            f"- ({h.get('score')}) {str(h.get('text') or '')[:200]}" for h in semantic_hits
+        )
         tree = context.get("files") or {}
         tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
         if ide_coding:
@@ -567,6 +571,7 @@ class MasterConductor:
                 f"Project: {project.name}\n"
                 f"Files: {tree_hint}\n"
                 f"Standing: {standing_txt or '(none)'}\n"
+                f"Semantic memory: {semantic_txt or '(none)'}\n"
                 f"USER:\n{user_message}\n\n"
                 "OUTPUT FORMAT (mandatory):\n"
                 "1) 2–5 sentences in the USER's language (German if they wrote German, Arabic if Arabic, …).\n"
@@ -596,6 +601,7 @@ class MasterConductor:
                 f"Isolation: {binding.get('isolation_namespace') or project.isolation_namespace}\n"
                 f"Standing instructions (execute; never forget for this project):\n"
                 f"{standing_txt or '(none)'}\n"
+                f"Semantic memory (durable vector recall):\n{semantic_txt or '(none)'}\n"
                 f"User: {user_message}\n"
                 f"Intent: {route.intent} ({route.label_ar})\n"
                 f"Specialist briefs:\n{briefs}\n"

@@ -167,3 +167,91 @@ async def openrouter_chat(
         int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
         data,
     )
+
+
+async def cursor_cloud_agent_chat(
+    *,
+    api_key: str,
+    prompt: str,
+    system: str | None = None,
+    base_url: str = "https://api.cursor.com",
+    repo_url: str | None = None,
+    model_id: str | None = None,
+    poll_timeout_seconds: float = 180.0,
+    poll_interval_seconds: float = 3.0,
+) -> tuple[str, int, int, dict[str, Any]]:
+    """Cursor Cloud Agents API as a coding teacher (create → poll run.result).
+
+    Not a chat-completions API — best for coding/implementation prompts.
+    Auth: Bearer or Basic (key as username). We use Bearer.
+    """
+    import asyncio
+    import time
+
+    text = prompt
+    if system:
+        text = f"{system.strip()}\n\n---\n\n{prompt}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    body: dict[str, Any] = {
+        "prompt": {"text": text[:120_000]},
+        "name": "Spixa teacher",
+    }
+    if model_id:
+        body["model"] = {"id": model_id}
+    if repo_url:
+        body["repos"] = [{"url": repo_url}]
+
+    root = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        create = await client.post(f"{root}/v1/agents", headers=headers, json=body)
+        if create.status_code >= 400:
+            raise ProviderError("cursor", create.text[:800], status=create.status_code)
+        created = create.json()
+        agent = created.get("agent") if isinstance(created.get("agent"), dict) else created
+        run = created.get("run") if isinstance(created.get("run"), dict) else {}
+        agent_id = str(agent.get("id") or created.get("id") or "")
+        run_id = str(
+            run.get("id")
+            or agent.get("latestRunId")
+            or created.get("latestRunId")
+            or ""
+        )
+        if not agent_id or not run_id:
+            raise ProviderError(
+                "cursor",
+                f"missing agent/run id in create response: {str(created)[:400]}",
+            )
+
+        deadline = time.monotonic() + max(30.0, poll_timeout_seconds)
+        last: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            poll = await client.get(
+                f"{root}/v1/agents/{agent_id}/runs/{run_id}",
+                headers=headers,
+            )
+            if poll.status_code >= 400:
+                raise ProviderError("cursor", poll.text[:800], status=poll.status_code)
+            last = poll.json()
+            status = str(last.get("status") or "").upper()
+            if status in {"FINISHED", "ERROR", "CANCELLED", "EXPIRED"}:
+                break
+            await asyncio.sleep(max(1.0, poll_interval_seconds))
+        else:
+            raise ProviderError("cursor", "poll timeout waiting for Cursor agent run")
+
+        if str(last.get("status") or "").upper() != "FINISHED":
+            raise ProviderError(
+                "cursor",
+                f"run ended with status={last.get('status')}: {str(last.get('result') or '')[:400]}",
+            )
+        content = str(last.get("result") or "").strip()
+        if not content:
+            content = "(Cursor agent finished with empty result text)"
+        # Token usage not exposed — approximate from chars
+        tin = max(1, len(text) // 4)
+        tout = max(1, len(content) // 4)
+        return content, tin, tout, {"agent_id": agent_id, "run_id": run_id, "run": last}
+

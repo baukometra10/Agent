@@ -1,7 +1,11 @@
-"""Project-isolated embeddings store — never cross workspace boundaries.
+"""Project-isolated embeddings store — Chroma-like durable memory.
+
+Dual write:
+1) workspace JSONL (fast local, volume-backed on cloud)
+2) Postgres `project_memory_vectors` (survives even if workspace path moves)
 
 Uses a deterministic local hasher as the owned embeddings student by default
-(no network). Optional gateway teacher/student vectors can be attached later.
+(no network). Never cross project boundaries.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Project
+from app.db.models import Project, ProjectMemoryVector
 from app.security.isolation import assert_path_inside_workspace
 
 DIM = 128
@@ -94,12 +98,16 @@ class ProjectEmbeddingsStore:
         meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         project = await self._project(project_id)
-        vec = local_embed(text)
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return {"ok": False, "reason": "empty"}
+        vec = local_embed(cleaned)
+        row_id = uuid4()
         row = {
-            "id": str(uuid4()),
+            "id": str(row_id),
             "project_id": str(project.id),
             "namespace": project.isolation_namespace,
-            "text": text[:4000],
+            "text": cleaned[:4000],
             "source": source,
             "meta": meta or {},
             "vector": vec,
@@ -107,15 +115,34 @@ class ProjectEmbeddingsStore:
             "method": "owned_local_hash",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        # 1) workspace JSONL
         path = self._index_path(project)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # 2) durable DB row
+        self.session.add(
+            ProjectMemoryVector(
+                id=row_id,
+                project_id=project.id,
+                text=row["text"],
+                source=source,
+                method="owned_local_hash",
+                dims=len(vec),
+                vector=vec,
+                meta={
+                    **(meta or {}),
+                    "isolation_namespace": project.isolation_namespace,
+                },
+            )
+        )
+        await self.session.flush()
         return {
             "ok": True,
             "id": row["id"],
             "dims": row["dims"],
             "method": row["method"],
             "path": str(path),
+            "backend": "jsonl+postgres",
             "isolation_namespace": project.isolation_namespace,
         }
 
@@ -127,9 +154,33 @@ class ProjectEmbeddingsStore:
         top_k: int = 5,
     ) -> dict[str, Any]:
         project = await self._project(project_id)
-        path = self._index_path(project)
         qv = local_embed(query)
         hits: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        # Prefer DB (durable); merge JSONL for older local-only rows
+        db_rows = await self.session.execute(
+            select(ProjectMemoryVector)
+            .where(ProjectMemoryVector.project_id == project_id)
+            .order_by(ProjectMemoryVector.created_at.desc())
+            .limit(2000)
+        )
+        for row in db_rows.scalars().all():
+            score = cosine(qv, list(row.vector or []))
+            rid = str(row.id)
+            seen.add(rid)
+            hits.append(
+                {
+                    "id": rid,
+                    "score": round(score, 4),
+                    "text": row.text,
+                    "source": row.source,
+                    "meta": row.meta or {},
+                    "backend": "postgres",
+                }
+            )
+
+        path = self._index_path(project)
         if path.exists():
             for line in path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
@@ -138,21 +189,25 @@ class ProjectEmbeddingsStore:
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                # Hard isolation guard
                 if str(row.get("project_id")) != str(project.id):
                     continue
                 if row.get("namespace") and row.get("namespace") != project.isolation_namespace:
                     continue
+                rid = str(row.get("id") or "")
+                if rid in seen:
+                    continue
                 score = cosine(qv, list(row.get("vector") or []))
                 hits.append(
                     {
-                        "id": row.get("id"),
+                        "id": rid,
                         "score": round(score, 4),
                         "text": row.get("text"),
                         "source": row.get("source"),
                         "meta": row.get("meta") or {},
+                        "backend": "jsonl",
                     }
                 )
+
         hits.sort(key=lambda r: float(r["score"]), reverse=True)
         return {
             "project_id": str(project.id),
@@ -167,13 +222,23 @@ class ProjectEmbeddingsStore:
     async def stats(self, project_id: UUID) -> dict[str, Any]:
         project = await self._project(project_id)
         path = self._index_path(project)
-        count = 0
+        file_count = 0
         if path.exists():
-            count = sum(1 for line in path.open(encoding="utf-8") if line.strip())
+            file_count = sum(1 for line in path.open(encoding="utf-8") if line.strip())
+        from sqlalchemy import func
+
+        db_n = await self.session.scalar(
+            select(func.count())
+            .select_from(ProjectMemoryVector)
+            .where(ProjectMemoryVector.project_id == project_id)
+        )
         return {
             "project_id": str(project.id),
-            "vectors": count,
+            "vectors_jsonl": file_count,
+            "vectors_postgres": int(db_n or 0),
             "path": str(path),
             "method": "owned_local_hash",
             "dims": DIM,
+            "backend": "jsonl+postgres",
+            "chroma_like": True,
         }

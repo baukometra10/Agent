@@ -166,6 +166,7 @@ class Project(Base):
     )
 
     knowledge_nodes: Mapped[list[KnowledgeNode]] = relationship(back_populates="project")
+    memory_vectors: Mapped[list["ProjectMemoryVector"]] = relationship(back_populates="project")
     tasks: Mapped[list[AgentTask]] = relationship(back_populates="project")
     proposals: Mapped[list[Proposal]] = relationship(back_populates="project")
     decisions: Mapped[list[DecisionRecord]] = relationship(back_populates="project")
@@ -173,6 +174,27 @@ class Project(Base):
     roadmaps: Mapped[list[Roadmap]] = relationship(back_populates="project")
     sessions: Mapped[list["AgentSession"]] = relationship(back_populates="project")
     ventures: Mapped[list["VentureRun"]] = relationship(back_populates="project")
+
+
+class ProjectMemoryVector(Base):
+    """Durable project-isolated embedding row (Chroma-like; JSON vector, cosine in app)."""
+
+    __tablename__ = "project_memory_vectors"
+    __table_args__ = (Index("ix_memory_vectors_project", "project_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_uuid)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    method: Mapped[str] = mapped_column(String(64), default="owned_local_hash")
+    dims: Mapped[int] = mapped_column(Integer, default=128)
+    vector: Mapped[list[float]] = mapped_column(JSON, default=list)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    project: Mapped[Project] = relationship(back_populates="memory_vectors")
 
 
 class KnowledgeNode(Base):

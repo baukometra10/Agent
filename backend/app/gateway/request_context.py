@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 
-# auto | internal | openrouter | openai | anthropic
+# auto | internal | openrouter | openai | anthropic | cursor
 preferred_provider: ContextVar[str | None] = ContextVar("preferred_provider", default=None)
 # Full teacher slug when forcing a specific OpenRouter model: openai/gpt-4.1
 preferred_model: ContextVar[str | None] = ContextVar("preferred_model", default=None)

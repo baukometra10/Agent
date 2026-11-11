@@ -76,9 +76,17 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str = "https://spixa.local"
     openrouter_app_name: str = "Spixa"
-    # openrouter = single source; direct = per-vendor OpenAI/Anthropic keys
+    # openrouter = chat teachers; cursor = Cloud Agents API (coding teacher, async-ish)
     teacher_upstream: str = "openrouter"
     model_gateway_force_simulate: bool = False
+    # Cursor Cloud Agents API (https://api.cursor.com) — optional coding teacher
+    cursor_api_key: str = ""
+    cursor_api_base_url: str = "https://api.cursor.com"
+    cursor_default_repo_url: str = ""  # optional GitHub/GitLab URL for repo-bound runs
+    cursor_poll_timeout_seconds: float = 180.0
+    cursor_poll_interval_seconds: float = 3.0
+    # Cloud/Railway: blank projects under WORKSPACES_ROOT (persistent volume) instead of Desktop
+    cloud_workspaces: bool = False
 
     # Internal Intelligence First — external teachers only when quality gates demand
     prefer_internal: bool = True

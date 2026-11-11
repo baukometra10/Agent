@@ -134,12 +134,28 @@ class ProjectLongTermMemory:
             self.session.add(durable)
 
         await self.session.flush()
+
+        # Auto-index into durable vector memory (Chroma-like) for semantic recall
+        embed_info: dict[str, Any] | None = None
+        try:
+            from app.memory.embeddings_store import ProjectEmbeddingsStore
+
+            embed_info = await ProjectEmbeddingsStore(self.session).upsert(
+                project_id,
+                text=text,
+                source=f"ltm_{role}",
+                meta={"session_id": str(session_id) if session_id else None},
+            )
+        except Exception:  # noqa: BLE001 — never fail the primary memory write
+            embed_info = None
+
         return {
             "stored": True,
             "utterance_node_id": str(node.id),
             "standing_instruction_id": str(durable.id) if durable else None,
             "workspace_path": project.workspace_path,
             "isolation_namespace": project.isolation_namespace,
+            "embedding": embed_info,
         }
 
     def read_transcript(self, project: Project, *, limit: int = 200) -> list[dict[str, Any]]:
@@ -208,6 +224,25 @@ class ProjectLongTermMemory:
             for n in standing.scalars().all()
         ]
 
+        semantic: dict[str, Any] = {"hits": [], "indexed": 0}
+        try:
+            from app.memory.embeddings_store import ProjectEmbeddingsStore
+
+            # Query from latest user turn or standing instructions
+            seed = ""
+            for row in reversed(transcript):
+                if row.get("role") == "user" and row.get("content"):
+                    seed = str(row["content"])
+                    break
+            if not seed and instructions:
+                seed = str(instructions[0].get("content") or "")
+            if seed:
+                semantic = await ProjectEmbeddingsStore(self.session).search(
+                    project_id, query=seed[:500], top_k=6
+                )
+        except Exception:  # noqa: BLE001
+            semantic = {"hits": [], "indexed": 0, "error": "semantic_unavailable"}
+
         return {
             "binding": {
                 "project_id": str(project.id),
@@ -220,9 +255,11 @@ class ProjectLongTermMemory:
             "standing_instructions": instructions,
             "transcript": transcript,
             "session_history": history,
+            "semantic": semantic,
             "counts": {
                 "transcript": len(transcript),
                 "session_history": len(history),
                 "standing_instructions": len(instructions),
+                "semantic_hits": len(semantic.get("hits") or []),
             },
         }
