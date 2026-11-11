@@ -84,8 +84,16 @@ class ModelGateway:
         return bool((self.settings.cursor_api_key or "").strip())
 
     def _use_openrouter_upstream(self) -> bool:
+        """Use OpenRouter when explicitly selected, or as fallback if Cursor upstream isn't ready."""
         upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
-        return upstream == "openrouter" and self._openrouter_ready()
+        if not self._openrouter_ready():
+            return False
+        if upstream == "openrouter":
+            return True
+        # Cursor selected but no key / not ready → keep OpenRouter usable
+        if upstream == "cursor" and not self._cursor_ready():
+            return True
+        return False
 
     def _use_cursor_upstream(self) -> bool:
         upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
