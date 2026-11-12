@@ -137,6 +137,10 @@ export function ensureBuildEdits(
   userMessage: string,
   edits: FileEdit[],
 ): FileEdit[] {
+  // Never invent scaffold files when the teacher failed / key missing
+  if (extractProviderError(reply) || /cursor_key_missing|refused_simulate|provider-error/i.test(reply)) {
+    return [];
+  }
   const solid = edits.filter((e) => (e.content || "").trim().length > 0 || e.kind === "dir");
   if (solid.length) return solid;
   if (
@@ -334,6 +338,15 @@ function providerErrorUserMessage(detail: string, userMessage: string): string {
       return "المعلّم الخارجي (OpenRouter) بلا رصيد. تحقق من مفتاح Cursor أو اشحن الرصيد — هذا ليس رداً جاهزاً من النظام.";
     }
     return "External teacher has no credits (OpenRouter 402). Check Cursor key or add credits — this is not a canned plan.";
+  }
+  if (/cursor_key_missing|key_missing|unused/.test(low)) {
+    if (lang === "de") {
+      return "Cursor-API-Key fehlt in diesem Backend (lokal). Key in `.env` als CURSOR_API_KEY setzen oder die Cloud-URL nutzen — sonst kann der Lehrer nicht antworten.";
+    }
+    if (lang === "ar") {
+      return "مفتاح Cursor غير موجود في هذا الخادم المحلي. ضع CURSOR_API_KEY في `.env` أو استخدم السحابة.";
+    }
+    return "Cursor API key is missing on this backend. Set CURSOR_API_KEY in .env or use the cloud API.";
   }
   if (/cursor|refused_simulate/.test(low)) {
     if (lang === "de") {

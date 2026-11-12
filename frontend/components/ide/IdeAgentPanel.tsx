@@ -1669,8 +1669,14 @@ export function IdeAgentPanel({
       const specialists = Array.isArray(donePayload?.specialists)
         ? (donePayload!.specialists as unknown[]).map(String)
         : [];
-      const edits =
-        sendMode === "ask" ? [] : ensureBuildEdits(reply, message, parseAgentEdits(reply));
+      const teacherFailed =
+        /\[provider-error:/i.test(reply) ||
+        /cursor_key_missing|refused_simulate/i.test(reply);
+      const edits = teacherFailed
+        ? []
+        : sendMode === "ask"
+          ? []
+          : ensureBuildEdits(reply, message, parseAgentEdits(reply));
       const routeTier = donePayload?.route_tier ? String(donePayload.route_tier) : null;
       const modelId = donePayload?.model ? String(donePayload.model) : null;
       const simulated = Boolean(donePayload?.simulated);
@@ -1724,7 +1730,7 @@ export function IdeAgentPanel({
       const tabTitle = shortTitle(serverTitle || topic);
       let finalDisplay = display;
       let appliedEdits = edits;
-      if (edits.length && !useReview) {
+      if (edits.length && !useReview && !teacherFailed) {
         patchLastAssistant(sid, {
           text: display,
           streaming: true,
@@ -1746,7 +1752,12 @@ export function IdeAgentPanel({
         if (!/✓/.test(finalDisplay)) {
           finalDisplay = `${finalDisplay}${wrote}`.trim();
         }
-        patchLastAssistant(sid, { text: finalDisplay, edits: appliedEdits });
+        patchLastAssistant(sid, {
+          text: finalDisplay,
+          edits: appliedEdits,
+          streaming: false,
+          status: null,
+        });
         void rapidLearnFromIdeApply({
           projectId,
           userText: message,
