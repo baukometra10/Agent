@@ -292,10 +292,14 @@ async def send_message_stream(
             pass
 
     async def event_gen() -> AsyncIterator[str]:
+        from app.gateway.request_context import set_status_sink
+
         lang = _status_lang(payload.message or "")
         phases = _STATUS_PHASES.get(lang) or _STATUS_PHASES["en"]
         phase0, label0 = phases[0]
-        yield _sse({"type": "status", "phase": phase0, "text": label0, "step": 1, "total": len(phases)})
+        status_q: asyncio.Queue = asyncio.Queue()
+        set_status_sink(status_q)
+        yield _sse({"type": "status", "phase": phase0, "text": label0, "step": 1, "total": 4})
         limit = int(payload.max_seconds or 90)
         limit = max(15, min(limit, 3600))
         task = asyncio.create_task(
@@ -314,7 +318,7 @@ async def send_message_stream(
             )
         )
         pulse = 0
-        phase_idx = 0
+        fallback_idx = 0
         partial_out = ""
         try:
             while not task.done():
@@ -327,18 +331,28 @@ async def send_message_stream(
                     await _save_abort(partial_out)
                     yield _sse({"type": "aborted"})
                     return
+                # Drain real Cursor/master status ticks first
+                drained = False
+                while True:
+                    try:
+                        evt = status_q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    drained = True
+                    if isinstance(evt, dict) and evt.get("type") == "status":
+                        yield _sse(evt)
                 pulse += 1
-                # Advance status every ~1.6s (8 * 0.2) like Cursor step ticks
-                if pulse % 8 == 0 and phase_idx < len(phases) - 1:
-                    phase_idx += 1
-                    phase, label = phases[phase_idx]
+                # Soft fallback ticks only when no real status arrived yet
+                if not drained and pulse % 10 == 0 and fallback_idx < len(phases) - 1:
+                    fallback_idx += 1
+                    phase, label = phases[fallback_idx]
                     yield _sse(
                         {
                             "type": "status",
                             "phase": phase,
                             "text": label,
-                            "step": phase_idx + 1,
-                            "total": len(phases),
+                            "step": fallback_idx + 1,
+                            "total": 4,
                         }
                     )
                 if pulse * 0.2 >= limit:
@@ -351,11 +365,19 @@ async def send_message_stream(
                     yield _sse(
                         {
                             "type": "error",
-                            "detail": f"Zeitlimit ({limit}s) — Modell antwortet nicht. Kleineres Ollama-Modell wählen.",
+                            "detail": f"Zeitlimit ({limit}s) — Modell antwortet nicht.",
                         }
                     )
                     return
                 await asyncio.sleep(0.2)
+            # Flush any late status events
+            while True:
+                try:
+                    evt = status_q.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if isinstance(evt, dict) and evt.get("type") == "status":
+                    yield _sse(evt)
             result = task.result()
         except asyncio.CancelledError:
             await _save_abort(partial_out)
@@ -364,6 +386,8 @@ async def send_message_stream(
         except Exception as exc:  # noqa: BLE001
             yield _sse({"type": "error", "detail": str(exc)[:500]})
             return
+        finally:
+            set_status_sink(None)
 
         reply = str(result.get("reply") or "")
         streaming_label = {
@@ -376,8 +400,8 @@ async def send_message_stream(
                 "type": "status",
                 "phase": "streaming",
                 "text": streaming_label,
-                "step": len(phases),
-                "total": len(phases),
+                "step": 4,
+                "total": 4,
             }
         )
         # Progressive deltas so the UI can render live

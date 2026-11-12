@@ -211,20 +211,62 @@ const UI_LANG = {
     understood: "فهم الطلب",
     executing: "تنفيذ الطلب في مساحة العمل.",
     thinking: "يفكر…",
+    writing: "يكتب الملفات…",
   },
   de: {
     why: "Warum?",
     understood: "Anfrage verstanden",
     executing: "Umsetzung im Workspace.",
     thinking: "Denkt nach…",
+    writing: "Schreibt Dateien…",
   },
   en: {
     why: "Why?",
     understood: "Understood",
     executing: "Executing in the workspace.",
     thinking: "Thinking…",
+    writing: "Writing files…",
   },
 } as const;
+
+const STATUS_PHASE_LABEL: Record<string, { ar: string; de: string; en: string }> = {
+  thinking: { ar: "يفكر…", de: "Denkt nach…", en: "Thinking…" },
+  reading: { ar: "يقرأ المشروع…", de: "Liest das Projekt…", en: "Reading the project…" },
+  planning: { ar: "يضع خطة…", de: "Plant den nächsten Schritt…", en: "Planning next steps…" },
+  generating: { ar: "يكتب الرد…", de: "Schreibt die Antwort…", en: "Writing the reply…" },
+  streaming: { ar: "يبث الرد…", de: "Antwort kommt…", en: "Streaming reply…" },
+  writing: { ar: "يكتب الملفات…", de: "Schreibt Dateien…", en: "Writing files…" },
+  cursor_start: {
+    ar: "تشغيل Cursor Cloud Agent…",
+    de: "Startet Cursor Cloud Agent…",
+    en: "Starting Cursor Cloud Agent…",
+  },
+  cursor_creating: {
+    ar: "Cursor: إنشاء الوكيل…",
+    de: "Cursor: Agent wird erstellt…",
+    en: "Creating Cursor agent…",
+  },
+  cursor_pending: { ar: "Cursor: بانتظار…", de: "Cursor: wartet…", en: "Cursor waiting…" },
+  cursor_running: {
+    ar: "Cursor: يعمل على الكود…",
+    de: "Cursor: arbeitet am Code…",
+    en: "Cursor working on code…",
+  },
+  cursor_done: {
+    ar: "Cursor انتهى — جاري تطبيق الرد…",
+    de: "Cursor fertig — Antwort wird übernommen…",
+    en: "Cursor finished — applying reply…",
+  },
+  cursor_error: { ar: "خطأ Cursor", de: "Cursor-Fehler", en: "Cursor error" },
+  cursor_cancelled: { ar: "أُلغي Cursor", de: "Cursor abgebrochen", en: "Cursor cancelled" },
+  cursor_expired: { ar: "انتهت مهلة Cursor", de: "Cursor abgelaufen", en: "Cursor expired" },
+};
+
+function statusLabelFor(phase: string, fallback: string, lang: "ar" | "de" | "en"): string {
+  const row = STATUS_PHASE_LABEL[phase];
+  if (row) return row[lang];
+  return fallback || UI_LANG[lang].thinking;
+}
 
 const INTENT_LABEL: Record<string, { ar: string; de: string; en: string }> = {
   design: { ar: "تصميم وواجهة", de: "Design & UI", en: "Design & UI" },
@@ -1592,8 +1634,13 @@ export function IdeAgentPanel({
           }
           const type = String(evt.type || "");
           if (type === "status") {
-            const label = String(evt.text || UI_LANG[detectUserLang(message)].thinking);
             const phase = String(evt.phase || "thinking");
+            const lang = detectUserLang(message);
+            const label = statusLabelFor(
+              phase,
+              String(evt.text || UI_LANG[lang].thinking),
+              lang,
+            );
             const step = typeof evt.step === "number" ? evt.step : undefined;
             const total = typeof evt.total === "number" ? evt.total : undefined;
             patchLastAssistant(sid, {
@@ -1690,6 +1737,14 @@ export function IdeAgentPanel({
       let finalDisplay = display;
       let appliedEdits = edits;
       if (edits.length && !useReview) {
+        patchLastAssistant(sid, {
+          text: display,
+          streaming: true,
+          status: {
+            phase: "writing",
+            label: UI_LANG[detectUserLang(message)].writing,
+          },
+        });
         appliedEdits = await snapshotEdits(edits);
         await onApplyEdits(appliedEdits);
         onLog?.(`${tabTitle} · ${route.text} · ${appliedEdits.length} file(s)`);

@@ -270,8 +270,16 @@ async def cursor_cloud_agent_chat(
                 f"missing agent/run id in create response: {str(created)[:400]}",
             )
 
+        try:
+            from app.gateway.request_context import emit_agent_status
+
+            emit_agent_status("cursor_start", "Starting Cursor Cloud Agent…")
+        except Exception:  # noqa: BLE001
+            pass
+
         deadline = time.monotonic() + max(30.0, poll_timeout_seconds)
         last: dict[str, Any] = {}
+        last_status = ""
         while time.monotonic() < deadline:
             poll = await client.get(
                 f"{root}/v1/agents/{agent_id}/runs/{run_id}",
@@ -281,6 +289,15 @@ async def cursor_cloud_agent_chat(
                 raise ProviderError("cursor", poll.text[:800], status=poll.status_code)
             last = poll.json()
             status = str(last.get("status") or "").upper()
+            if status and status != last_status:
+                last_status = status
+                phase, label = _cursor_status_phase(status)
+                try:
+                    from app.gateway.request_context import emit_agent_status
+
+                    emit_agent_status(phase, label)
+                except Exception:  # noqa: BLE001
+                    pass
             if status in {"FINISHED", "ERROR", "CANCELLED", "EXPIRED"}:
                 break
             await asyncio.sleep(max(1.0, poll_interval_seconds))
@@ -295,8 +312,29 @@ async def cursor_cloud_agent_chat(
         content = str(last.get("result") or "").strip()
         if not content:
             content = "(Cursor agent finished with empty result text)"
+        try:
+            from app.gateway.request_context import emit_agent_status
+
+            emit_agent_status("cursor_done", "Cursor finished — applying reply…")
+        except Exception:  # noqa: BLE001
+            pass
         # Token usage not exposed — approximate from chars
         tin = max(1, len(text) // 4)
         tout = max(1, len(content) // 4)
         return content, tin, tout, {"agent_id": agent_id, "run_id": run_id, "run": last}
+
+
+def _cursor_status_phase(status: str) -> tuple[str, str]:
+    """Map Cursor Cloud Agents run status → (phase_id, english fallback label)."""
+    s = (status or "").upper()
+    mapping = {
+        "CREATING": ("cursor_creating", "Creating Cursor agent…"),
+        "PENDING": ("cursor_pending", "Cursor waiting…"),
+        "RUNNING": ("cursor_running", "Cursor working on code…"),
+        "FINISHED": ("cursor_done", "Cursor finished"),
+        "ERROR": ("cursor_error", "Cursor error"),
+        "CANCELLED": ("cursor_cancelled", "Cursor cancelled"),
+        "EXPIRED": ("cursor_expired", "Cursor expired"),
+    }
+    return mapping.get(s, ("cursor_running", f"Cursor: {s.lower() or 'running'}…"))
 

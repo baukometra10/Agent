@@ -87,6 +87,12 @@ class MasterConductor:
             payload={"route": route.intent, "specialists": list(route.specialists)},
         )
 
+        try:
+            from app.gateway.request_context import emit_agent_status
+
+            emit_agent_status("reading", "Reading project…")
+        except Exception:  # noqa: BLE001
+            pass
         tools = ProjectToolbelt(self.session, project)
         context = await self._gather_context(
             tools, user_message, project=project, session_id=session_id
@@ -581,6 +587,12 @@ class MasterConductor:
             # Still tell the model the target path even if read failed
             snippet_block = f"\nTarget file path: {context.get('path_hint')}\n"
         if ide_coding:
+            try:
+                from app.gateway.request_context import emit_agent_status
+
+                emit_agent_status("planning", "Planning next steps…")
+            except Exception:  # noqa: BLE001
+                pass
             prompt = (
                 "You are Spixa — reply exactly like Cursor Chat: clear, short, human.\n"
                 f"Project: {project.name}\n"
