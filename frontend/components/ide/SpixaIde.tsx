@@ -150,14 +150,19 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     setEntries(data.entries || []);
   }, []);
 
-  const refreshProjects = useCallback(async (preferId?: string) => {
+  const refreshProjects = useCallback(async (preferId?: string, upsert?: Project) => {
     const list = await fetchProjects();
-    setProjects(list);
+    setProjects(() => {
+      if (upsert && !list.some((p) => p.id === upsert.id)) {
+        return [upsert, ...list];
+      }
+      return list.map((p) => (upsert && p.id === upsert.id ? { ...p, ...upsert } : p));
+    });
     if (preferId) {
       setProjectId(preferId);
       return;
     }
-    setProjectId((cur) => cur || list[0]?.id || "");
+    setProjectId((cur) => cur || upsert?.id || list[0]?.id || "");
   }, []);
 
   useEffect(() => {
@@ -279,7 +284,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           setStatus("تعذّر فتح المجلد من الرابط — عدّل المسار وحاول مجددًا.");
           return;
         }
-        await refreshProjects(result.project.id);
+        await refreshProjects(result.project.id, result.project);
         setShowOpenFolder(false);
         setStatus(`فُتح المجلد · ${result.project.name}`);
         window.history.replaceState({}, "", "/ide");
@@ -395,7 +400,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     }
     setShowOpenFolder(false);
     setFolderPath("");
-    await refreshProjects(result.project.id);
+    await refreshProjects(result.project.id, result.project);
     setStatus(`فُتح المجلد · ${result.project.name}`);
   }
 
@@ -414,7 +419,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
         }
         setShowOpenFolder(false);
         setShowDiskBrowser(false);
-        await refreshProjects(result.project.id);
+        await refreshProjects(result.project.id, result.project);
         setStatus(`فُتح المجلد · ${result.project.name}`);
         return;
       }
@@ -433,7 +438,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     }
     setShowDiskBrowser(false);
     setShowOpenFolder(false);
-    await refreshProjects(result.project.id);
+    await refreshProjects(result.project.id, result.project);
     setStatus(`فُتح المجلد · ${result.project.name}`);
     return { ok: true };
   }

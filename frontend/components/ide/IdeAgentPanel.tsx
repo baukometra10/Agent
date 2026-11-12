@@ -14,6 +14,7 @@ import { AgentCompareModal } from "@/components/ide/AgentCompareModal";
 import { AgentEditReview } from "@/components/ide/AgentEditReview";
 import { rapidLearnFromIdeApply, recordCodingHumanAcceptance } from "@/lib/maturity";
 import { API_URL, fetchChiefModels, type ChiefCatalog, type ChiefModel } from "@/lib/api";
+import { apiBaseForProject, resolveProjectApiBase } from "@/lib/projectApi";
 import { fetchWorkspaceFile } from "@/lib/workspace";
 import {
   detectUserLang,
@@ -397,7 +398,7 @@ export function IdeAgentPanel({
     );
     updateLocalArchiveTitle(projectId, id, clean);
     // Persist AI/topic name on the server so archive keeps it
-    void fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${id}`, {
+    void fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: clean }),
@@ -464,14 +465,17 @@ export function IdeAgentPanel({
     }
     void ensureNotifyPermission();
     setResumeByTab(readCheckpoints(projectId));
-    void fetchTemplates(projectId).then(setTemplates);
+    void resolveProjectApiBase(projectId).then(() => {
+      void fetchTemplates(projectId).then(setTemplates);
+    });
     initialSessionHandled.current = false;
   }, [projectId]);
 
   const refreshSessions = useCallback(async () => {
     const local = readLocalArchive(projectId);
     try {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions?status=all`, {
+      const base = await resolveProjectApiBase(projectId);
+      const res = await fetch(`${base}/api/projects/${projectId}/chat/sessions?status=all`, {
         cache: "no-store",
       });
       if (!res.ok) {
@@ -543,12 +547,12 @@ export function IdeAgentPanel({
 
   async function patchSessionStatus(sessionId: string, status: "active" | "archived" | "deleted") {
     if (status === "archived") {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}/archive`, {
+      const res = await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}/archive`, {
         method: "POST",
       });
       if (!res.ok) {
         // Fallback PATCH if archive route missing (old API process)
-        await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
+        await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "archived" }),
@@ -557,11 +561,11 @@ export function IdeAgentPanel({
       return;
     }
     if (status === "active") {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}/unarchive`, {
+      const res = await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}/unarchive`, {
         method: "POST",
       });
       if (!res.ok) {
-        await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
+        await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "active" }),
@@ -569,14 +573,14 @@ export function IdeAgentPanel({
       }
       return;
     }
-    await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
+    await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}`, {
       method: "DELETE",
     });
   }
 
   async function sessionHasMessages(sessionId: string): Promise<boolean> {
     try {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}/messages`, {
+      const res = await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}/messages`, {
         cache: "no-store",
       });
       if (!res.ok) return true; // be safe: keep it
@@ -590,7 +594,7 @@ export function IdeAgentPanel({
   const loadMessages = useCallback(
     async (sessionId: string) => {
       try {
-        const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sessionId}/messages`, {
+        const res = await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sessionId}/messages`, {
           cache: "no-store",
         });
         if (!res.ok) return;
@@ -699,7 +703,8 @@ export function IdeAgentPanel({
     setInterimSpeech("");
 
     try {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions`, {
+      const base = await resolveProjectApiBase(projectId);
+      const res = await fetch(`${base}/api/projects/${projectId}/chat/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -774,7 +779,7 @@ export function IdeAgentPanel({
         try {
           rememberLocalArchive(projectId, id, title);
           if (!isPlaceholderTitle(title)) {
-            await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${id}`, {
+            await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ title }),
@@ -1166,7 +1171,7 @@ export function IdeAgentPanel({
       };
       writeCheckpoint(projectId, cp);
       setResumeByTab((prev) => ({ ...prev, [sid]: cp }));
-      void fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${sid}/resume`, {
+      void fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${sid}/resume`, {
         method: "GET",
       })
         .then((r) => (r.ok ? r.json() : null))
@@ -1325,7 +1330,7 @@ export function IdeAgentPanel({
 
   async function purgeArchived(id: string) {
     try {
-      await fetch(`${API_URL}/api/projects/${projectId}/chat/sessions/${id}?hard=true`, {
+      await fetch(`${apiBaseForProject(projectId)}/api/projects/${projectId}/chat/sessions/${id}?hard=true`, {
         method: "DELETE",
       });
       forgetLocalArchive(projectId, id);
@@ -1462,8 +1467,9 @@ export function IdeAgentPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: profile.email, text: message }),
       });
+      const chatBase = await resolveProjectApiBase(projectId);
       const res = await fetch(
-        `${API_URL}/api/projects/${projectId}/chat/sessions/${sid}/messages/stream`,
+        `${chatBase}/api/projects/${projectId}/chat/sessions/${sid}/messages/stream`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },

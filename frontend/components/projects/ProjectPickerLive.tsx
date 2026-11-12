@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Project } from "@/lib/types";
 import { createBlankProject } from "@/lib/api";
 import { CodeStream } from "@/components/brain/CodeStream";
@@ -23,6 +23,11 @@ export function ProjectPickerLive({ projects: initial }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const { focus, codeEvents, intensity, connected } = useAgentLive(selected || undefined);
   const active = focus.active;
+
+  useEffect(() => {
+    setProjects(initial);
+    setSelected((cur) => cur || initial[0]?.id || "");
+  }, [initial]);
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selected),

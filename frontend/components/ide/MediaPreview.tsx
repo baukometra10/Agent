@@ -1,6 +1,6 @@
 "use client";
 
-import { API_URL } from "@/lib/api";
+import { workspaceRawUrl } from "@/lib/workspace";
 import { formatBytes, type FileViewKind } from "./fileKinds";
 
 type Props = {
@@ -12,7 +12,7 @@ type Props = {
 };
 
 export function MediaPreview({ projectId, path, kind, size, mime }: Props) {
-  const rawUrl = `${API_URL}/api/projects/${projectId}/workspace/raw?path=${encodeURIComponent(path)}`;
+  const rawUrl = workspaceRawUrl(projectId, path);
   const name = path.split(/[\\/]/).pop() || path;
 
   return (

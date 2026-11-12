@@ -62,20 +62,30 @@ export async function fetchChiefModels(): Promise<ChiefCatalog | null> {
 }
 
 export async function fetchProjects(): Promise<Project[]> {
-  try {
-    const res = await fetch(`${API_URL}/api/projects`, { cache: "no-store" });
-    if (!res.ok) return [];
-    return res.json();
-  } catch {
-    return [];
-  }
+  // Merge primary API + local disk agent so opened folders always show in lists
+  const { fetchProjectsMerged } = await import("@/lib/projectApi");
+  return fetchProjectsMerged();
 }
 
 export async function fetchProject(id: string): Promise<Project | null> {
   try {
-    const res = await fetch(`${API_URL}/api/projects/${id}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
+    const { apiBaseForProject } = await import("@/lib/projectApi");
+    const bases = Array.from(
+      new Set([apiBaseForProject(id).replace(/\/$/, ""), API_URL.replace(/\/$/, "")]),
+    );
+    for (const base of bases) {
+      try {
+        const res = await fetch(`${base}/api/projects/${id}`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const project = (await res.json()) as Project;
+        const { rememberProjectApiBase } = await import("@/lib/projectApi");
+        rememberProjectApiBase(id, base);
+        return project;
+      } catch {
+        /* try next */
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -334,13 +344,19 @@ export async function createProjectFromPath(input: {
   description?: string;
 }): Promise<Project | null> {
   try {
-    const res = await fetch(`${API_URL}/api/projects/from-path`, {
+    const { resolveDiskApiBase } = await import("@/lib/localDisk");
+    const { rememberProjectApiBase } = await import("@/lib/projectApi");
+    const disk = await resolveDiskApiBase();
+    const base = disk.unreachable ? API_URL : disk.diskBase;
+    const res = await fetch(`${base.replace(/\/$/, "")}/api/projects/from-path`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
     if (!res.ok) return null;
-    return res.json();
+    const project = (await res.json()) as Project;
+    if (project?.id) rememberProjectApiBase(String(project.id), base);
+    return project;
   } catch {
     return null;
   }
@@ -352,13 +368,19 @@ export async function createBlankProject(input: {
   owner_email?: string;
 }): Promise<Project | null> {
   try {
-    const res = await fetch(`${API_URL}/api/projects/blank`, {
+    const { resolveDiskApiBase } = await import("@/lib/localDisk");
+    const { rememberProjectApiBase } = await import("@/lib/projectApi");
+    const disk = await resolveDiskApiBase();
+    const base = disk.unreachable ? API_URL : disk.diskBase;
+    const res = await fetch(`${base.replace(/\/$/, "")}/api/projects/blank`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
     if (!res.ok) return null;
-    return res.json();
+    const project = (await res.json()) as Project;
+    if (project?.id) rememberProjectApiBase(String(project.id), base);
+    return project;
   } catch {
     return null;
   }

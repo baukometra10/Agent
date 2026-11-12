@@ -1,4 +1,5 @@
 import { API_URL } from "@/lib/api";
+import { apiBaseForProject } from "@/lib/projectApi";
 
 export type TreeEntry = {
   path: string;
@@ -14,8 +15,12 @@ export type TreeResponse = {
   truncated?: boolean;
 };
 
+function baseFor(projectId: string): string {
+  return apiBaseForProject(projectId) || API_URL;
+}
+
 export async function fetchWorkspaceTree(projectId: string): Promise<TreeResponse> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/workspace/tree`, {
+  const res = await fetch(`${baseFor(projectId)}/api/projects/${projectId}/workspace/tree`, {
     cache: "no-store",
   });
   if (!res.ok) return { entries: [] };
@@ -43,7 +48,7 @@ export async function fetchWorkspaceFile(
   path: string,
 ): Promise<WorkspaceFileResult> {
   const res = await fetch(
-    `${API_URL}/api/projects/${projectId}/workspace/file?path=${encodeURIComponent(path)}`,
+    `${baseFor(projectId)}/api/projects/${projectId}/workspace/file?path=${encodeURIComponent(path)}`,
     { cache: "no-store" },
   );
   const data = await res.json().catch(() => ({}));
@@ -52,7 +57,7 @@ export async function fetchWorkspaceFile(
 }
 
 export function workspaceRawUrl(projectId: string, path: string): string {
-  return `${API_URL}/api/projects/${projectId}/workspace/raw?path=${encodeURIComponent(path)}`;
+  return `${baseFor(projectId)}/api/projects/${projectId}/workspace/raw?path=${encodeURIComponent(path)}`;
 }
 
 export async function runWorkspaceCommand(
@@ -68,7 +73,7 @@ export async function runWorkspaceCommand(
   cwd?: string;
   command?: string;
 }> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/workspace/terminal`, {
+  const res = await fetch(`${baseFor(projectId)}/api/projects/${projectId}/workspace/terminal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command, cwd: cwd || null, timeout: 60 }),
@@ -82,7 +87,7 @@ export async function fetchCompletions(
   projectId: string,
   payload: { path: string; language: string; prefix: string; suffix: string },
 ): Promise<{ insertText: string; label?: string }[]> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/workspace/complete`, {
+  const res = await fetch(`${baseFor(projectId)}/api/projects/${projectId}/workspace/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -97,7 +102,7 @@ export async function saveWorkspaceFile(
   path: string,
   content: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/workspace/file`, {
+  const res = await fetch(`${baseFor(projectId)}/api/projects/${projectId}/workspace/file`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, content }),
@@ -112,7 +117,7 @@ export async function createWorkspaceEntry(
   path: string,
   kind: "file" | "dir" = "file",
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/workspace/file`, {
+  const res = await fetch(`${baseFor(projectId)}/api/projects/${projectId}/workspace/file`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, kind, content: "" }),

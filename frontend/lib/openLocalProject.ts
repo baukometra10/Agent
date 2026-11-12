@@ -2,6 +2,7 @@
 
 import type { Project } from "@/lib/types";
 import { resolveDiskApiBase } from "@/lib/localDisk";
+import { rememberProjectApiBase } from "@/lib/projectApi";
 
 declare global {
   interface Window {
@@ -73,6 +74,9 @@ export async function openLocalProjectFolder(
       return { ok: false, error: detail || "create_failed" };
     }
     const project = (await res.json()) as Project;
+    if (project?.id) {
+      rememberProjectApiBase(String(project.id), disk.diskBase);
+    }
     return { ok: true, project };
   } catch {
     return { ok: false, error: "create_failed" };
