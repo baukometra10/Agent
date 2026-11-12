@@ -29,7 +29,12 @@ POLLUTION_LINE = re.compile(
     r"confirm understanding|"
     r"file fences with full|"
     r"gates, or accept|"
-    r"arabic / german / english"
+    r"arabic / german / english|"
+    r"ground the plan in the real project|"
+    r"ground every suggestion|"
+    r"do not repeat these instructions|"
+    r"spixa ide — answer like|"
+    r"you are spixa"
     r")"
 )
 

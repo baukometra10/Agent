@@ -317,8 +317,48 @@ class MasterConductor:
         )
         bus.set_idle(hint=f"توقف عند: {user_message[:120]}")
 
+        from app.memory.pollution import is_pollution_text, strip_pollution
+
+        raw_reply = str(synthesis.get("content") or "")
+        clean_reply = strip_pollution(raw_reply)
+        if not clean_reply or is_pollution_text(clean_reply) or is_pollution_text(raw_reply):
+            # Never show scaffold echo to the user — fall back to a short grounded plan
+            tree = (context.get("files") or {}).get("files") or []
+            hint = ", ".join(str(p) for p in list(tree)[:8]) if isinstance(tree, list) else ""
+            um = user_message or ""
+            if any("\u0600" <= ch <= "\u06FF" for ch in um):
+                clean_reply = (
+                    f"فهمت — نكمل على المشروع"
+                    f"{f' ({hint})' if hint else ''}.\n"
+                    "1) نراجع الملفات ذات الصلة\n"
+                    "2) ننفّذ أصغر تغيير مفيد\n"
+                    "3) نتحقق بسرعة\n"
+                    "بماذا نبدأ؟"
+                )
+            elif any(
+                w in um.lower()
+                for w in ("ich", "wir", "bitte", "machen", "können", "projekt", "und", "app", "bau")
+            ) or any(ch in um.lower() for ch in "äöüß"):
+                clean_reply = (
+                    f"Verstanden — wir arbeiten im Projekt weiter"
+                    f"{f' ({hint})' if hint else ''}.\n"
+                    "1) Ist-Zustand der relevanten Dateien prüfen\n"
+                    "2) Kleinste sinnvolle Änderung umsetzen\n"
+                    "3) Kurz prüfen\n"
+                    "Womit sollen wir starten?"
+                )
+            else:
+                clean_reply = (
+                    f"Understood — we'll continue in the project"
+                    f"{f' ({hint})' if hint else ''}.\n"
+                    "1) Review the relevant files\n"
+                    "2) Make the smallest useful change\n"
+                    "3) Quick check\n"
+                    "Where should we start?"
+                )
+
         return {
-            "reply": synthesis["content"],
+            "reply": clean_reply,
             "intent": route.intent,
             "intent_label": route.label_ar,
             "specialists": [r["agent"] for r in specialist_reports],
