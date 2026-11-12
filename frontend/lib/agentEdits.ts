@@ -148,6 +148,14 @@ export function looksLikeExploratoryAsk(message: string): boolean {
   );
 }
 
+/** True only when the user clearly asked to write/apply files this turn (not mere “build me an app”). */
+export function userWantsFileWrites(message: string): boolean {
+  const t = message || "";
+  return /(schreib(?:en)?|write|implement(?:iere)?n?|codier|umsetz(?:en)?|jetzt\s+(?:bau|mach|schreib)|datei(?:en)?\s+(?:schreib|erstell|anleg)|patch|füge\s+ein|leg\s+(?:die\s+)?(?:dateien\s+)?an|اكتب|سوي ملف|طبق|عدّل الملف|نفّذ|نفذ|apply\s+(?:it|now|the)|go\s+ahead\s+and\s+(?:write|code|implement))/i.test(
+    t,
+  );
+}
+
 /**
  * Prefer real model fences only. Never invent the same canned scaffold every turn —
  * understand→plan first; writes only when the teacher emitted real file bodies.

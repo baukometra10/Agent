@@ -208,7 +208,21 @@ class ProjectLongTermMemory:
         if not sess:
             return []
         msgs = sorted(sess.messages, key=lambda m: m.created_at)[-limit:]
-        return [{"role": m.role, "content": m.content} for m in msgs]
+        out: list[dict[str, str]] = []
+        for m in msgs:
+            content = m.content or ""
+            if m.role == "user":
+                payload = m.tool_payload if isinstance(m.tool_payload, dict) else {}
+                display = payload.get("display_text") if isinstance(payload, dict) else None
+                if isinstance(display, str) and display.strip():
+                    content = display.strip()
+                else:
+                    # Belt-and-suspenders: strip IDE scaffold wrappers from older rows
+                    from app.chat.agent import ChatAgentService
+
+                    content = ChatAgentService._extract_user_topic(content)
+            out.append({"role": m.role, "content": content})
+        return out
 
     async def recall(
         self,

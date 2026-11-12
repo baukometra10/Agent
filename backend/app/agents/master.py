@@ -1260,12 +1260,15 @@ class MasterConductor:
         import re
 
         t = text or ""
+        # Bare «bau / erstell / أنشئ» = plan-level. Writes need an explicit apply verb.
         return bool(
             re.search(
-                r"(schreib|write|implement|erstell|anleg|bau(?:en)?|codier|"
+                r"(schreib(?:en)?|write|implement(?:iere)?n?|codier|"
+                r"umsetz(?:en)?|jetzt\s+(?:bau|mach|schreib)|"
                 r"datei(?:en)?\s+(?:schreib|erstell|anleg)|"
-                r"patch|commit|füge\s+ein|leg\s+an|"
-                r"اكتب|أنشئ|سوي ملف|طبق|عدّل الملف)",
+                r"patch|füge\s+ein|leg\s+(?:die\s+)?(?:dateien\s+)?an|"
+                r"اكتب|سوي ملف|طبق|عدّل الملف|نفّذ|نفذ|"
+                r"apply\s+(?:it|now|the)|go\s+ahead\s+and\s+(?:write|code|implement))",
                 t,
                 re.I,
             )

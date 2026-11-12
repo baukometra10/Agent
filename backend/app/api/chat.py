@@ -41,25 +41,25 @@ def _status_lang(text: str) -> str:
     return "en"
 
 
-# Cursor/Claude-like progress phases while the teacher runs
+# Cursor/Claude-like progress: understand → plan → implement → reply
 _STATUS_PHASES: dict[str, list[tuple[str, str]]] = {
     "ar": [
-        ("thinking", "يفكر…"),
+        ("understand", "يفهم الطلب…"),
         ("reading", "يقرأ المشروع…"),
-        ("planning", "يضع خطة…"),
-        ("generating", "يكتب الرد…"),
+        ("plan", "يضع خطة…"),
+        ("implement", "يجهّز التنفيذ…"),
     ],
     "de": [
-        ("thinking", "Denkt nach…"),
+        ("understand", "Versteht die Anfrage…"),
         ("reading", "Liest das Projekt…"),
-        ("planning", "Plant den nächsten Schritt…"),
-        ("generating", "Schreibt die Antwort…"),
+        ("plan", "Plant…"),
+        ("implement", "Bereitet Umsetzung vor…"),
     ],
     "en": [
-        ("thinking", "Thinking…"),
+        ("understand", "Understanding…"),
         ("reading", "Reading the project…"),
-        ("planning", "Planning next steps…"),
-        ("generating", "Writing the reply…"),
+        ("plan", "Planning…"),
+        ("implement", "Preparing implement…"),
     ],
 }
 
@@ -429,6 +429,8 @@ async def send_message_stream(
                 "budget_hit": bool(result.get("budget_hit")),
                 "usage": result.get("usage"),
                 "decision": result.get("decision"),
+                "specialists": result.get("specialists") or [],
+                "build_phase": result.get("build_phase"),
             }
         )
 

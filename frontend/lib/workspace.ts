@@ -215,5 +215,5 @@ export async function stopWorkspacePreview(projectId: string): Promise<PreviewSt
   if (!res || !res.ok) {
     return { running: false, ok: false, error: String(data.detail || "preview_stop_failed") };
   }
-  return { ok: true, running: false, ...(data as PreviewStatus) };
+  return { ...(data as PreviewStatus), ok: true, running: false };
 }

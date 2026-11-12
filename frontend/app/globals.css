@@ -5860,6 +5860,50 @@ body.ide-resizing .ide-sash::after {
   background: rgba(240, 120, 120, 0.1);
 }
 
+.ide-agent__team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.ide-agent__phase {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(158, 193, 255, 0.35);
+  color: #c9daf7;
+  background: rgba(91, 141, 239, 0.12);
+}
+
+.ide-agent__phase.is-understand {
+  border-color: rgba(158, 193, 255, 0.35);
+}
+
+.ide-agent__phase.is-plan {
+  border-color: rgba(255, 200, 120, 0.4);
+  color: #ffd9a0;
+  background: rgba(255, 180, 80, 0.1);
+}
+
+.ide-agent__phase.is-implement {
+  border-color: rgba(120, 220, 160, 0.4);
+  color: #b8f0c8;
+  background: rgba(80, 200, 120, 0.12);
+}
+
+.ide-agent__chip {
+  font-size: 0.62rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a8b6cc;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .ide-agent__decide {
   margin-top: 0.35rem;
   display: grid;

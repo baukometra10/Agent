@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -227,6 +228,10 @@ class ChatAgentService:
                 continue
             if s.startswith("You are the Spixa") or s.startswith("You are Spixa") or s.startswith("LANGUAGE (mandatory)"):
                 continue
+            if s.startswith("Spixa IDE") or s.startswith("WORKFLOW every turn"):
+                continue
+            if s.startswith("After UI/web") or s.startswith("Live Preview"):
+                continue
             if s.startswith("وضع الوكيل") or s.startswith("وضع السؤال") or s.startswith("وضع التعديل"):
                 continue
             if s.startswith("Mode=agent") or s.startswith("Mode=ask") or s.startswith("Mode=edit"):
@@ -237,11 +242,15 @@ class ChatAgentService:
                 continue
             if s.startswith("شجرة المشروع") or s.startswith("ملف مفتوح") or s.startswith("لا ملف"):
                 continue
-            if s.startswith("Project tree") or s.startswith("Selected brain"):
+            if s.startswith("Project tree") or s.startswith("Selected brain") or s.startswith("Linked file"):
+                continue
+            if s.startswith("No file open") or s.startswith("Attachments:"):
                 continue
             if s.startswith("الطلب يبدو") or s.startswith("عدّل فقط"):
                 continue
             if s.startswith("User clearly asked") or s.startswith("Prefer improving"):
+                continue
+            if s.startswith("User wants a new project") or s.startswith("Reply ONLY"):
                 continue
             if s.startswith("### ") or s.startswith("```"):
                 continue
@@ -476,6 +485,19 @@ class ChatAgentService:
         )
 
         evaluations = result.get("evaluations") if isinstance(result.get("evaluations"), list) else []
+        reply_preview = result.get("reply") or ""
+        wants_writes = MasterConductor._user_wants_file_writes(topic_source or "")
+        reply_has_fences = "```" in reply_preview and bool(
+            re.search(r"```[\w./\\-]+\s*\n", reply_preview)
+        )
+        offered_now = result.get("last_offered_options")
+        has_options = isinstance(offered_now, dict) and bool(offered_now)
+        if wants_writes and reply_has_fences:
+            build_phase = "implement"
+        elif has_options or (not wants_writes and reply_has_fences):
+            build_phase = "plan"
+        else:
+            build_phase = "understand"
         # User-facing decision stays clean; grades/specialists stay internal in tool_payload only.
         decision_log = {
             "intent": result.get("intent"),
@@ -493,6 +515,8 @@ class ChatAgentService:
                 )
                 if p
             ][:20],
+            "specialists": result.get("specialists") or [],
+            "build_phase": build_phase,
         }
         internal_grades = {
             "specialists": result.get("specialists") or [],
@@ -513,6 +537,8 @@ class ChatAgentService:
                     "proposal": result.get("proposal"),
                     "memory_binding": result.get("memory_binding"),
                     "route_tier": result.get("route_tier"),
+                    "build_phase": build_phase,
+                    "specialists": result.get("specialists") or [],
                     "decision_log": decision_log,
                     "internal": internal_grades,
                 },
@@ -594,6 +620,7 @@ class ChatAgentService:
                 meta2["last_offered_options"] = {
                     str(k): str(v)[:400] for k, v in offered.items() if str(v).strip()
                 }
+            meta2["build_phase"] = build_phase
             session.meta = meta2
             session_title = session.title or session_title
         if budget_hit and reply_text:
@@ -639,6 +666,7 @@ class ChatAgentService:
             "budget_hit": budget_hit,
             "usage": (session.meta or {}).get("usage") if session else usage,
             "decision": decision_log,
+            "build_phase": build_phase,
         }
 
     async def _project(self, project_id: UUID) -> Project:

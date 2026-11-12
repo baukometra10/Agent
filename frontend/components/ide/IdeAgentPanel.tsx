@@ -20,6 +20,7 @@ import {
   detectUserLang,
   displayAgentReply,
   ensureBuildEdits,
+  userWantsFileWrites,
   filterNoopEdits,
   parseAgentEdits,
   type FileEdit,
@@ -98,6 +99,7 @@ type Msg = {
   edits?: FileEdit[];
   pendingEdits?: FileEdit[];
   specialists?: string[];
+  buildPhase?: string | null;
   agent?: string | null;
   routeTier?: string | null;
   model?: string | null;
@@ -232,8 +234,11 @@ const UI_LANG = {
 
 const STATUS_PHASE_LABEL: Record<string, { ar: string; de: string; en: string }> = {
   thinking: { ar: "يفكر…", de: "Denkt nach…", en: "Thinking…" },
+  understand: { ar: "يفهم الطلب…", de: "Versteht die Anfrage…", en: "Understanding…" },
   reading: { ar: "يقرأ المشروع…", de: "Liest das Projekt…", en: "Reading the project…" },
+  plan: { ar: "يضع خطة…", de: "Plant…", en: "Planning…" },
   planning: { ar: "يضع خطة…", de: "Plant den nächsten Schritt…", en: "Planning next steps…" },
+  implement: { ar: "يجهّز التنفيذ…", de: "Bereitet Umsetzung vor…", en: "Preparing implement…" },
   generating: { ar: "يكتب الرد…", de: "Schreibt die Antwort…", en: "Writing the reply…" },
   streaming: { ar: "يبث الرد…", de: "Antwort kommt…", en: "Streaming reply…" },
   writing: { ar: "يكتب الملفات…", de: "Schreibt Dateien…", en: "Writing files…" },
@@ -322,6 +327,13 @@ type Props = {
   onAfterWebEdits?: (paths: string[]) => void;
   /** Current Live Preview URL if running */
   livePreviewUrl?: string | null;
+};
+
+const BUILD_PHASE_LABEL: Record<string, { ar: string; de: string; en: string }> = {
+  understand: { ar: "فهم", de: "Verstehen", en: "Understand" },
+  plan: { ar: "خطة", de: "Plan", en: "Plan" },
+  implement: { ar: "تنفيذ", de: "Umsetzen", en: "Implement" },
+  idle: { ar: "جاهز", de: "Bereit", en: "Ready" },
 };
 
 const SCAFFOLD_RULES =
@@ -720,9 +732,17 @@ export function IdeAgentPanel({
           }
           const edits = parseAgentEdits(content);
           const decision = (payload.decision_log || null) as DecisionLog | null;
+          const internal = (payload.internal || {}) as Record<string, unknown>;
           const simulated = Boolean(
             payload.simulated ?? (decision as DecisionLog | null)?.simulated,
           );
+          const specialistsRaw = Array.isArray(payload.specialists)
+            ? payload.specialists
+            : Array.isArray(internal.specialists)
+              ? internal.specialists
+              : Array.isArray(decision?.specialists)
+                ? decision!.specialists
+                : [];
           return {
             role,
             text: displayAgentReply(content, edits, lastUserText),
@@ -731,9 +751,8 @@ export function IdeAgentPanel({
             routeTier: payload.route_tier ? String(payload.route_tier) : null,
             model: payload.model ? String(payload.model) : null,
             simulated,
-            specialists: Array.isArray(payload.specialists)
-              ? payload.specialists.map(String)
-              : undefined,
+            specialists: specialistsRaw.map(String),
+            buildPhase: payload.build_phase ? String(payload.build_phase) : null,
             decision,
           };
         });
@@ -1563,8 +1582,8 @@ export function IdeAgentPanel({
       agent: chiefLabel,
       streaming: true,
       status: {
-        phase: "thinking",
-        label: UI_LANG[detectUserLang(message)].thinking,
+        phase: "understand",
+        label: STATUS_PHASE_LABEL.understand[detectUserLang(message)],
         step: 1,
         total: 4,
       },
@@ -1700,15 +1719,24 @@ export function IdeAgentPanel({
       const simulated = Boolean(donePayload?.simulated);
       setLastRoute({ tier: routeTier, model: modelId, simulated });
       const display = displayAgentReply(reply, edits, message);
-      // Agent + Edit write immediately like Cursor (Review only if user opts in AND mode is not agent).
+      // Plan-first: auto-write only when user asked to implement, or Edit mode with review off.
+      const wantsWrites = userWantsFileWrites(message) || sendMode === "edit";
       const useReview =
-        reviewBeforeApply && edits.length > 0 && sendMode === "edit";
+        edits.length > 0 &&
+        (sendMode === "ask" ||
+          (sendMode === "agent" && !wantsWrites) ||
+          (reviewBeforeApply && sendMode === "edit"));
+      const buildPhase = String(
+        donePayload?.build_phase ||
+          (edits.length && wantsWrites ? "implement" : edits.length ? "plan" : "understand"),
+      );
       const decision = (donePayload?.decision || null) as DecisionLog | null;
       patchLastAssistant(sid, {
         text: display,
         edits: useReview ? undefined : edits,
         pendingEdits: useReview ? edits : undefined,
         specialists,
+        buildPhase,
         agent: chiefLabel,
         routeTier,
         model: modelId,
@@ -2275,6 +2303,20 @@ export function IdeAgentPanel({
             {hasBody || m.role === "user" ? (
               <div className="ide-agent__bubble">
                 {m.text || ""}
+              </div>
+            ) : null}
+            {m.role === "assistant" && (m.buildPhase || m.specialists?.length) ? (
+              <div className="ide-agent__team" dir="ltr">
+                {m.buildPhase ? (
+                  <span className={`ide-agent__phase is-${m.buildPhase}`}>
+                    {(BUILD_PHASE_LABEL[m.buildPhase] || BUILD_PHASE_LABEL.idle)[uiLang]}
+                  </span>
+                ) : null}
+                {(m.specialists || []).slice(0, 6).map((name) => (
+                  <span key={name} className="ide-agent__chip">
+                    {name}
+                  </span>
+                ))}
               </div>
             ) : null}
             {m.pendingEdits?.length && activeTabId ? (

@@ -385,6 +385,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     }
     setTabs((all) => all.map((t) => (t.path === active.path ? { ...t, dirty: false } : t)));
     setStatus(`حُفظ · ${active.path}`);
+    if (previewOpen && previewUrl) refreshPreviewFrame();
   }
 
   async function createFile() {
@@ -491,6 +492,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     setTabs((all) => all.map((t) => ({ ...t, dirty: false })));
     setBusy(false);
     setStatus(`حُفظ ${dirty.length} ملف`);
+    if (previewOpen && previewUrl) refreshPreviewFrame();
   }
 
   async function applyEdits(edits: FileEdit[]) {
