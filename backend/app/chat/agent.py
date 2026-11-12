@@ -585,6 +585,12 @@ class ChatAgentService:
             usage2["updated_at"] = datetime.now(timezone.utc).isoformat()
             meta2["usage"] = usage2
             meta2.pop("resume_checkpoint", None)
+            # Persist numbered menus so short replies ("4", "ja") stay grounded
+            offered = result.get("last_offered_options")
+            if isinstance(offered, dict) and offered:
+                meta2["last_offered_options"] = {
+                    str(k): str(v)[:400] for k, v in offered.items() if str(v).strip()
+                }
             session.meta = meta2
             session_title = session.title or session_title
         if budget_hit and reply_text:
