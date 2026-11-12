@@ -425,6 +425,9 @@ class ChatAgentService:
             "allow_teacher": allow_teacher is not False,
             "budget_hit": budget_hit,
         }
+        # New substantive ask → drop stale option menus so every reply isn't forced back to "4 / MVP"
+        if not MasterConductor._is_short_followup_message(topic_source):
+            meta.pop("last_offered_options", None)
         if self._should_retitle(session, project):
             session.title = self._auto_title(user_message)
             meta["untitled"] = False

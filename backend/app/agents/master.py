@@ -654,12 +654,18 @@ class MasterConductor:
         if not isinstance(history_rows, list):
             history_rows = []
         chat_block = self._format_recent_chat(history_rows, limit=10)
-        offered_options = mem.get("last_offered_options") if isinstance(mem.get("last_offered_options"), dict) else {}
-        # Short replies like "4" / "ja" must resolve against the last assistant options.
-        effective_user = self._expand_short_choice(
-            user_message,
-            history_rows,
-            offered_options=offered_options,
+        offered_raw = mem.get("last_offered_options") if isinstance(mem.get("last_offered_options"), dict) else {}
+        # Only reuse option menus for short follow-ups ("4", "ja"). Fresh questions must not be steered.
+        short_followup = self._is_short_followup_message(user_message)
+        offered_options = offered_raw if short_followup else {}
+        effective_user = (
+            self._expand_short_choice(
+                user_message,
+                history_rows,
+                offered_options=offered_options,
+            )
+            if short_followup
+            else user_message
         )
 
         tree = context.get("files") or {}
@@ -691,9 +697,19 @@ class MasterConductor:
             if body:
                 key_block += f"\n--- {kname} (from bound workspace) ---\n{body}\n"
         offered_block = ""
-        if offered_options:
-            lines = [f"{k}. {v}" for k, v in sorted(offered_options.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 99)]
-            offered_block = "LAST OFFERED OPTIONS (user may answer with a number):\n" + "\n".join(lines) + "\n"
+        if short_followup and offered_options:
+            lines = [
+                f"{k}. {v}"
+                for k, v in sorted(
+                    offered_options.items(),
+                    key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 99,
+                )
+            ]
+            offered_block = (
+                "LAST OFFERED OPTIONS (user is answering these now):\n"
+                + "\n".join(lines)
+                + "\n"
+            )
         snippet = context.get("file_snippet") if isinstance(context.get("file_snippet"), dict) else None
         snippet_block = ""
         if snippet and snippet.get("content") and not snippet.get("error"):
@@ -860,6 +876,7 @@ class MasterConductor:
         t = (text or "").lower()
         if not t.strip():
             return False
+        # Keep needles specific — broad phrases like "nicht bewerten" falsely replace real answers.
         needles = (
             "./agent",
             "kein repository",
@@ -872,22 +889,28 @@ class MasterConductor:
             "no project checkout",
             "without a checkout",
             "nicht seriös lesen",
-            "nicht einsehen",
-            "nicht bewerten",
             "repository-zugriff",
             "repository access",
             "start this agent from",
-            "start den agent",
-            "starte den agenten",
+            "starte den agenten aus",
             "umgebung mit projekt-checkout",
             "cursor.com/agents",
-            "cursor-workspace",
-            "available workspace",
             "not present in the available workspace",
-            "läuft ohne",
             "session läuft ohne",
+            "ohne ausgechecktes repository",
+            "keinen direkten zugriff auf deinen",
+            "no direct access to your",
         )
-        return any(n in t for n in needles)
+        hits = sum(1 for n in needles if n in t)
+        return hits >= 1 and (
+            "repository" in t
+            or "checkout" in t
+            or "./agent" in t
+            or "cursor.com/agents" in t
+            or "workspace" in t
+            or "zugriff" in t
+            or "access" in t
+        )
 
     @staticmethod
     def _grounded_workspace_reply(user_message: str, snap: dict[str, Any]) -> str:
@@ -1163,18 +1186,55 @@ class MasterConductor:
             "auswahltext",
             "vorherige auswahl",
             "fehlt der vorherige",
-            "mir fehlt",
             "wofür '4'",
             'wofür "4"',
-            "wofur",
             "what the number meant",
             "what '4' stood",
             "what \"4\" stood",
             "sag mir kurz, wofür",
-            "missing the previous",
-            "projekt-roadmap oder",
+            "missing the previous selection",
+            "projekt-roadmap oder soll ich",
         )
         return any(n in t for n in needles)
+
+    @staticmethod
+    def _is_short_followup_message(text: str) -> bool:
+        """True only for bare numbers / affirmations that refer to a prior option menu."""
+        import re
+
+        bare = (text or "").strip()
+        bare = re.sub(r"^\[mode:[^\]]+\]\s*", "", bare, flags=re.I).strip()
+        bare = re.sub(r"^Mode=[a-zA-Z]+:\s*", "", bare, flags=re.I).strip()
+        # Strip IDE scaffold wrappers down to the real ask when present
+        for marker in (
+            "=== USER MESSAGE (reply in this language) ===",
+            "=== USER MESSAGE ===",
+            "طلب المستخدم:",
+            "User request:",
+        ):
+            if marker in bare:
+                bare = bare.split(marker)[-1].strip()
+                break
+        # First non-empty line only for follow-up detection
+        first = next((ln.strip() for ln in bare.splitlines() if ln.strip()), "")
+        if not first or len(first) > 48:
+            return False
+        if re.match(r"^([1-9]|10)\s*[.)]?\s*$", first):
+            return True
+        if re.match(
+            r"^(?:option|punkt|nr\.?|number|رقم|اختيار)\s*([1-9]|10)\s*[.)]?\s*$",
+            first,
+            flags=re.I,
+        ):
+            return True
+        return bool(
+            re.match(
+                r"^(ja|j|ok|okay|yes|yep|y|mach\s*das|mach\s*weiter|weiter|los|"
+                r"go|do\s*it|نعم|ايوة|أيوة|يلا|تمام|موافق)\s*[.!؟?]?\s*$",
+                first,
+                flags=re.I,
+            )
+        )
 
     @staticmethod
     def _is_expanded_choice(text: str) -> bool:
