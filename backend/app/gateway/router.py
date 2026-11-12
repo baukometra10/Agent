@@ -764,6 +764,19 @@ class ModelGateway:
         *,
         reason: str,
     ) -> ModelResponse:
+        # Never dress a fake openai/gpt-* answer as the live teacher when Cursor is upstream
+        active = self.active_teacher_upstream()
+        force = str((metadata or {}).get("force_provider") or "").lower()
+        if active == "cursor" or force == "cursor":
+            return ModelResponse(
+                role=role,
+                model_id="cursor/cloud-agent",
+                content=f"[provider-error:cursor] refused_simulate ({reason})",
+                simulated=False,
+                error=f"refused_simulate:{reason}",
+                route_tier=RouteTier.teacher.value,
+                raw={"provider": "cursor", "metadata": metadata, "reason": reason},
+            )
         return ModelResponse(
             role=role,
             model_id=model_id,

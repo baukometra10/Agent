@@ -504,6 +504,7 @@ class ChatAgentService:
                     "intent": result.get("intent"),
                     "intent_label": result.get("intent_label"),
                     "model": result.get("model"),
+                    "simulated": bool(result.get("simulated")),
                     "proposal": result.get("proposal"),
                     "memory_binding": result.get("memory_binding"),
                     "route_tier": result.get("route_tier"),

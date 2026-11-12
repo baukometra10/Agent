@@ -79,6 +79,7 @@ type DecisionLog = {
   tools_used?: string[];
   route_tier?: string | null;
   model?: string | null;
+  simulated?: boolean;
   files_hint?: string[];
   evaluations?: SpecialistEval[];
 };
@@ -92,6 +93,7 @@ type Msg = {
   agent?: string | null;
   routeTier?: string | null;
   model?: string | null;
+  simulated?: boolean;
   streaming?: boolean;
   decision?: DecisionLog | null;
 };
@@ -181,15 +183,17 @@ function routeLabel(
   if (m.includes("cursor")) return { text: "Cursor", kind: "teacher" };
   const t = (tier || "").toLowerCase();
   if (t === "internal" || t === "cache") return { text: "Owned", kind: "owned" };
-  if (t === "teacher") return { text: "Teacher", kind: "teacher" };
   if (t === "simulate") return { text: "Sim", kind: "sim" };
+  if (t === "teacher") return { text: "Teacher", kind: "teacher" };
   return { text: "Auto", kind: "auto" };
 }
 
-function formatRouteModel(model?: string | null): string {
+function formatRouteModel(model?: string | null, simulated?: boolean): string {
+  if (simulated) return "not live";
   const m = (model || "").trim();
   if (!m) return "";
   if (m.toLowerCase().includes("cursor")) return "Cursor Cloud Agent";
+  // Never dress a simulated/legacy OpenRouter id as the live teacher when Cursor is selected
   return m;
 }
 
@@ -659,6 +663,9 @@ export function IdeAgentPanel({
           }
           const edits = parseAgentEdits(content);
           const decision = (payload.decision_log || null) as DecisionLog | null;
+          const simulated = Boolean(
+            payload.simulated ?? (decision as DecisionLog | null)?.simulated,
+          );
           return {
             role,
             text: displayAgentReply(content, edits, lastUserText),
@@ -666,6 +673,7 @@ export function IdeAgentPanel({
             agent: "Spixa",
             routeTier: payload.route_tier ? String(payload.route_tier) : null,
             model: payload.model ? String(payload.model) : null,
+            simulated,
             specialists: Array.isArray(payload.specialists)
               ? payload.specialists.map(String)
               : undefined,
@@ -1618,8 +1626,15 @@ export function IdeAgentPanel({
         agent: chiefLabel,
         routeTier,
         model: modelId,
+        simulated,
         streaming: false,
-        decision,
+        decision: decision
+          ? {
+              ...decision,
+              simulated: Boolean(decision.simulated ?? simulated),
+              model: decision.model || modelId,
+            }
+          : { route_tier: routeTier, model: modelId, simulated },
       });
 
       const serverTitle = donePayload?.session_title ? String(donePayload.session_title) : "";
@@ -2156,19 +2171,21 @@ export function IdeAgentPanel({
                 onOpenPath={onOpenPath}
               />
             ) : null}
-            {m.role === "assistant" && (m.routeTier || m.decision) ? (
+            {m.role === "assistant" && (m.routeTier || m.decision || m.simulated) ? (
               <div className="ide-agent__decide">
                 <button
                   type="button"
-                  className={`ide-agent__route-foot is-${routeLabel(m.routeTier || m.decision?.route_tier, false, m.model || m.decision?.model).kind}`}
+                  className={`ide-agent__route-foot is-${routeLabel(m.routeTier || m.decision?.route_tier, m.simulated || m.decision?.simulated, m.model || m.decision?.model).kind}`}
                   onClick={() =>
                     setDecisionOpen((prev) => ({ ...prev, [`${i}`]: !prev[`${i}`] }))
                   }
                 >
-                  {routeLabel(m.routeTier || m.decision?.route_tier, false, m.model || m.decision?.model).text}
-                  {m.model || m.decision?.model
-                    ? ` · ${formatRouteModel(m.model || m.decision?.model)}`
-                    : ""}
+                  {routeLabel(m.routeTier || m.decision?.route_tier, m.simulated || m.decision?.simulated, m.model || m.decision?.model).text}
+                  {m.simulated || m.decision?.simulated
+                    ? ` · ${formatRouteModel(m.model || m.decision?.model, true)}`
+                    : m.model || m.decision?.model
+                      ? ` · ${formatRouteModel(m.model || m.decision?.model)}`
+                      : ""}
                   {` · ${ui.why}`}
                 </button>
                 {decisionOpen[`${i}`] && m.decision ? (

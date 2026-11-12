@@ -226,7 +226,9 @@ export function AgentEditReview({
                     </div>
                   ))
                 ) : (
-                  <p className="ide-agent__diff-empty">لا تغييرات مرئية</p>
+                  <p className="ide-agent__diff-empty">
+                    لا تغييرات مرئية — الملف مطابق لما هو مكتوب بالفعل
+                  </p>
                 )}
               </div>
             ) : null}

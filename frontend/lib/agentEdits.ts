@@ -319,7 +319,7 @@ function providerErrorUserMessage(detail: string, userMessage: string): string {
     }
     return "External teacher has no credits (OpenRouter 402). Check Cursor key or add credits — this is not a canned plan.";
   }
-  if (/cursor/.test(low)) {
+  if (/cursor|refused_simulate/.test(low)) {
     if (lang === "de") {
       return `Cursor-Lehrer fehlgeschlagen: ${detail.slice(0, 280)}`;
     }
