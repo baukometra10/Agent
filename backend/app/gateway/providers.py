@@ -169,6 +169,38 @@ async def openrouter_chat(
     )
 
 
+def _valid_cursor_repo_url(repo_url: str | None) -> str | None:
+    """Only real GitHub/GitLab repo URLs — never Cursor dashboard / org roots."""
+    cleaned = (repo_url or "").strip().rstrip("/")
+    if not cleaned:
+        return None
+    low = cleaned.lower()
+    if "cursor.com" in low or "openrouter.ai" in low:
+        return None
+    if low in {
+        "https://github.com",
+        "http://github.com",
+        "https://gitlab.com",
+        "http://gitlab.com",
+    }:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(cleaned)
+        host = (parsed.hostname or "").lower()
+        if host not in {"github.com", "www.github.com", "gitlab.com", "www.gitlab.com"}:
+            return None
+        path = (parsed.path or "").strip("/")
+        # require org/repo (exactly two segments at minimum)
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2:
+            return None
+        return f"{parsed.scheme or 'https'}://{host}/{parts[0]}/{parts[1]}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def cursor_cloud_agent_chat(
     *,
     api_key: str,
@@ -201,27 +233,25 @@ async def cursor_cloud_agent_chat(
     }
     if model_id:
         body["model"] = {"id": model_id}
-    # Reject placeholder / org-root URLs that break Cloud Agents create
-    cleaned_repo = (repo_url or "").strip().rstrip("/")
-    if cleaned_repo and cleaned_repo.lower() not in {
-        "https://github.com",
-        "http://github.com",
-        "https://gitlab.com",
-        "http://gitlab.com",
-    }:
-        # Require at least org/repo path segments
-        try:
-            from urllib.parse import urlparse
-
-            path = (urlparse(cleaned_repo).path or "").strip("/")
-            if path.count("/") >= 1:
-                body["repos"] = [{"url": cleaned_repo}]
-        except Exception:  # noqa: BLE001
-            pass
+    cleaned_repo = _valid_cursor_repo_url(repo_url)
+    if cleaned_repo:
+        body["repos"] = [{"url": cleaned_repo}]
 
     root = base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=60.0) as client:
         create = await client.post(f"{root}/v1/agents", headers=headers, json=body)
+        # Bad/non-git CURSOR_DEFAULT_REPO_URL → retry once as repo-less chat teacher
+        if (
+            create.status_code >= 400
+            and cleaned_repo
+            and "repos" in body
+            and any(
+                token in (create.text or "").lower()
+                for token in ("repository", "source control", "repos", "validation_error")
+            )
+        ):
+            body.pop("repos", None)
+            create = await client.post(f"{root}/v1/agents", headers=headers, json=body)
         if create.status_code >= 400:
             raise ProviderError("cursor", create.text[:800], status=create.status_code)
         created = create.json()
