@@ -173,3 +173,47 @@ export async function createWorkspaceEntry(
   if (!res || !res.ok) return { ok: false, error: String(data.detail || "create_failed") };
   return { ok: true };
 }
+
+export type PreviewStatus = {
+  ok?: boolean;
+  running: boolean;
+  project_id?: string;
+  url?: string;
+  port?: number;
+  serve_root?: string;
+  pid?: number;
+  kind?: string;
+  hint?: string;
+  error?: string;
+};
+
+export async function fetchPreviewStatus(projectId: string): Promise<PreviewStatus> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/workspace/preview`, { cache: "no-store" }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) return { running: false, error: String(data.detail || "preview_status_failed") };
+  return data as PreviewStatus;
+}
+
+export async function startWorkspacePreview(projectId: string): Promise<PreviewStatus> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/workspace/preview/start`, { method: "POST" }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) {
+    return { running: false, ok: false, error: String(data.detail || "preview_start_failed") };
+  }
+  return { ok: true, ...(data as PreviewStatus) };
+}
+
+export async function stopWorkspacePreview(projectId: string): Promise<PreviewStatus> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/workspace/preview/stop`, { method: "POST" }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) {
+    return { running: false, ok: false, error: String(data.detail || "preview_stop_failed") };
+  }
+  return { ok: true, running: false, ...(data as PreviewStatus) };
+}

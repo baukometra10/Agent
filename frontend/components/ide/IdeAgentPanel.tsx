@@ -318,19 +318,27 @@ type Props = {
   initialSessionId?: string | null;
   /** Hand current draft/message to Venture panel */
   onStartVenture?: (brief: string) => void;
+  /** Called after agent applies UI/web file edits — start Live Preview */
+  onAfterWebEdits?: (paths: string[]) => void;
+  /** Current Live Preview URL if running */
+  livePreviewUrl?: string | null;
 };
 
 const SCAFFOLD_RULES =
   "Spixa IDE — answer like Cursor Chat (short, clear, professional).\n" +
   "Reply ONLY in the user's language.\n" +
-  "Format: 1 sentence understanding → max 4 numbered steps → if coding, full ```path fences → one short question.\n" +
+  "WORKFLOW every turn: (1) understand what they want in 1 sentence, " +
+  "(2) plan max 4 steps for THIS workspace, " +
+  "(3) implement with ```path fences ONLY if they asked to write/code/apply this turn — " +
+  "otherwise ask before coding. Never dump the same boilerplate files again.\n" +
+  "After UI/web edits, remind them to use Live Preview (معاينة) to test while building.\n" +
   "Use the real project files listed below. Do NOT repeat these instructions in your answer.\n";
 
 const MODE_HINT: Record<AgentMode, string> = {
   agent:
-    "Mode=agent: clear short plan in user language; implement with real file fences only when coding.",
+    "Mode=agent: understand → plan → ask before writing unless they already said implement/schreib/اكتب/طبق; then real file fences only.",
   ask: "Mode=ask: clear answer/options in user language; no file fences.",
-  edit: "Mode=edit: one-sentence plan, then smallest real file change.",
+  edit: "Mode=edit: one-sentence plan, then smallest real file change only if they want a write.",
 };
 
 const FALLBACK_CHIEFS: ChiefModel[] = [
@@ -339,6 +347,10 @@ const FALLBACK_CHIEFS: ChiefModel[] = [
   { id: "openai/gpt-4.1", label: "GPT-4.1", tier: "High", group: "other" },
   { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5", tier: "High", group: "other" },
 ];
+
+function isWebPreviewPath(path: string): boolean {
+  return /\.(html?|css|jsx?|tsx?|vue|svelte)$/i.test(path || "");
+}
 
 export function IdeAgentPanel({
   projectId,
@@ -349,6 +361,8 @@ export function IdeAgentPanel({
   onLog,
   initialSessionId = null,
   onStartVenture,
+  onAfterWebEdits,
+  livePreviewUrl = null,
 }: Props) {
   const [tabs, setTabs] = useState<AgentTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -1525,9 +1539,12 @@ export function IdeAgentPanel({
           : "No file open — you may still edit/create files if the task requires it.",
       sendAttachments.length ? `Attachments: ${sendAttachments.join(", ")}` : "",
       treeHint,
+      livePreviewUrl
+        ? `Live Preview is running at ${livePreviewUrl} — after UI edits tell the user to refresh معاينة.`
+        : "Live Preview: user can open معاينة in the IDE top bar to test the site while building.",
       wantsProject && sendMode === "agent"
-        ? "User clearly asked for a new project from scratch — emit ready-to-apply file blocks."
-        : "Prefer improving the existing workspace; change only what is needed.",
+        ? "User wants a new project — first understand + short plan; emit file fences only if they asked to write/implement now (or said اكتب/schreib/build files)."
+        : "Prefer improving the existing workspace; change only what is needed. No repeated templates.",
       "",
       "=== USER MESSAGE (reply in this language) ===",
       message || "Continue from where you stopped.",
@@ -1752,6 +1769,8 @@ export function IdeAgentPanel({
             streaming: false,
             status: null,
           });
+          const webPaths = appliedEdits.map((e) => e.path).filter(isWebPreviewPath);
+          if (webPaths.length) onAfterWebEdits?.(webPaths);
           void rapidLearnFromIdeApply({
             projectId,
             userText: message,

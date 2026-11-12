@@ -21,6 +21,7 @@ from app.workspace.files import (
     resolve_workspace_file,
     write_text_file,
 )
+from app.workspace.preview import preview_status, start_preview, stop_preview
 from app.workspace.terminal import run_workspace_command
 
 router = APIRouter(prefix="/projects", tags=["workspace"])
@@ -195,3 +196,33 @@ async def workspace_complete(
         suffix=payload.suffix or "",
         path=payload.path or "",
     )
+
+
+@router.get("/{project_id}/workspace/preview")
+async def workspace_preview_status(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    await _project(project_id, session)
+    return preview_status(project_id)
+
+
+@router.post("/{project_id}/workspace/preview/start")
+async def workspace_preview_start(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    project = await _project(project_id, session)
+    result = start_preview(project_id, project.workspace_path)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "preview_failed")
+    return result
+
+
+@router.post("/{project_id}/workspace/preview/stop")
+async def workspace_preview_stop(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    await _project(project_id, session)
+    return stop_preview(project_id)

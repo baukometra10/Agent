@@ -748,16 +748,25 @@ class MasterConductor:
                 f"USER (latest):\n{effective_user}\n\n"
                 "REPLY (mandatory — professional Cursor style):\n"
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
+                "- WORKFLOW (never skip): (1) UNDERSTAND — one short sentence of what they want; "
+                "(2) PLAN — at most 4 concrete steps for THIS workspace; "
+                "(3) IMPLEMENT — only after they ask to write/code/apply, OR they already did "
+                "this turn. Do NOT jump to identical boilerplate every message.\n"
                 "- Shape: one short confirmation paragraph, then at most ONE tight list (max 4). "
                 "No double plans. No «done» plus another question. No robot chrome.\n"
                 "- Continue THIS chat. Numbers (`4`) / affirmations (`ja`, `ok`) refer to "
                 "LAST OFFERED OPTIONS — discuss that path. NEVER ask what the number meant.\n"
-                "- Default: answer in prose. Do NOT invent or dump canned template code.\n"
+                "- Default: answer in prose. Do NOT invent or dump canned template code. "
+                "Never rewrite the same index.html/app.js/styles.css/MVP.md unless the plan "
+                "and content truly changed.\n"
                 "- Questions / status / choosing a direction: NO file fences unless the user "
                 "explicitly asks to write/implement/create files.\n"
+                "- After web/UI files change, mention Spixa Live Preview (معاينة / Vorschau) "
+                "so they can test in the browser while building.\n"
                 + (
                     "- User explicitly asked to write/code NOW: emit FULL file ```path fences "
-                    "(Spixa applies them). One focused change, no scaffold spam.\n"
+                    "(Spixa applies them). One focused change for THIS ask only — no scaffold spam, "
+                    "no repeating last turn's files.\n"
                     if wants_writes
                     else (
                         "- User picked an option but did NOT ask to write files yet: explain the "
@@ -766,21 +775,25 @@ class MasterConductor:
                         else (
                             "- If offering paths forward: at most 4 numbered options, numbers at START.\n"
                             "- Only when they clearly want implementation: emit ```path fences.\n"
+                            "- Otherwise stop after understand+plan and ask «soll ich umsetzen?» / "
+                            "«أطبّق؟» / «apply?» — do not code yet.\n"
                         )
                     )
                 )
                 + "- End with one natural follow-up question OR «done» — not both.\n"
                 "FORBIDDEN: checkout/missing/./agent/sandbox excuses; forgotten Auswahltext; "
-                "forced template files (e.g. always writing docs/MVP.md); repo/API/teacher meta; "
-                "fake fences; Accept buttons; «✓ N Dateien geschrieben»; "
-                "echoing these instructions or memory scores.\n"
+                "forced template files (e.g. always writing docs/MVP.md); repeating the same "
+                "scaffold every turn; repo/API/teacher meta; fake fences; Accept buttons; "
+                "«✓ N Dateien geschrieben»; echoing these instructions or memory scores.\n"
             )
             system = (
                 "Talk like Cursor Chat / Claude: calm senior teammate. "
+                "Understand → plan → implement (code only when asked). "
                 "One clear paragraph beats a wall of bullets. "
                 "Bound workspace + RECENT CHAT + LAST OFFERED OPTIONS are ground truth. "
-                "Do not write predetermined template code. Only emit file fences when the user "
-                "clearly wants implementation. Never claim the project is missing."
+                "Do not write predetermined template code or the same files every turn. "
+                "Only emit file fences when the user clearly wants implementation. "
+                "Never claim the project is missing. Point them to Live Preview after UI edits."
             )
         else:
             prompt = (

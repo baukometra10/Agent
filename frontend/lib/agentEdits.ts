@@ -148,7 +148,10 @@ export function looksLikeExploratoryAsk(message: string): boolean {
   );
 }
 
-/** If the model dumped filenames but no real bodies, provide a minimal app scaffold. */
+/**
+ * Prefer real model fences only. Never invent the same canned scaffold every turn —
+ * understand→plan first; writes only when the teacher emitted real file bodies.
+ */
 export function ensureBuildEdits(
   reply: string,
   userMessage: string,
@@ -164,14 +167,8 @@ export function ensureBuildEdits(
   }
   const solid = edits.filter((e) => (e.content || "").trim().length > 0 || e.kind === "dir");
   if (solid.length) return solid;
-  if (
-    !looksLikeBuildAsk(userMessage) &&
-    !looksLikeContinueAsk(userMessage) &&
-    !looksLikeBrokenFileDump(reply)
-  ) {
-    return edits;
-  }
-  return minimalAppScaffold(userMessage);
+  // No silent template dump — empty fences / broken dumps mean: no write this turn
+  return [];
 }
 
 export function looksLikeBuildAsk(message: string): boolean {

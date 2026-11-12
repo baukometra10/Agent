@@ -17,9 +17,12 @@ import type { Project } from "@/lib/types";
 import type { FileEdit } from "@/lib/agentEdits";
 import {
   createWorkspaceEntry,
+  fetchPreviewStatus,
   fetchWorkspaceFile,
   fetchWorkspaceTree,
   saveWorkspaceFile,
+  startWorkspacePreview,
+  stopWorkspacePreview,
   type TreeEntry,
 } from "@/lib/workspace";
 import {
@@ -112,6 +115,10 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
   const [wordWrap, setWordWrap] = useState(true);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
   const [explorerW, setExplorerW] = useState(240);
   const [dockW, setDockW] = useState(420);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -538,7 +545,91 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     } else {
       setStatus(`طُبّقت تعديلات الوكيل · ${applied.join(", ")}`);
     }
+    if (previewOpen && previewUrl && applied.length) {
+      refreshPreviewFrame();
+    }
   }
+
+  const refreshPreviewFrame = useCallback(() => {
+    setPreviewKey((k) => k + 1);
+  }, []);
+
+  const ensureLivePreview = useCallback(
+    async (opts?: { open?: boolean; silent?: boolean }) => {
+      if (!projectId) return;
+      setPreviewBusy(true);
+      try {
+        const started = await startWorkspacePreview(projectId);
+        if (!started.running || !started.url) {
+          if (!opts?.silent) {
+            setStatus(`معاينة: ${started.error || "تعذّر التشغيل"}`);
+          }
+          return;
+        }
+        setPreviewUrl(started.url);
+        if (opts?.open !== false) setPreviewOpen(true);
+        refreshPreviewFrame();
+        if (!opts?.silent) {
+          setStatus(`Live Preview · ${started.url}`);
+        }
+        bottomRef.current?.appendOutput(`Live Preview · ${started.url}`, "meta");
+      } finally {
+        setPreviewBusy(false);
+      }
+    },
+    [projectId, refreshPreviewFrame],
+  );
+
+  const stopLivePreview = useCallback(async () => {
+    if (!projectId) return;
+    setPreviewBusy(true);
+    try {
+      await stopWorkspacePreview(projectId);
+      setPreviewUrl(null);
+      setPreviewOpen(false);
+      setStatus("توقفت المعاينة");
+    } finally {
+      setPreviewBusy(false);
+    }
+  }, [projectId]);
+
+  const toggleLivePreview = useCallback(async () => {
+    if (!projectId) return;
+    if (previewOpen && previewUrl) {
+      setPreviewOpen(false);
+      return;
+    }
+    const status = await fetchPreviewStatus(projectId);
+    if (status.running && status.url) {
+      setPreviewUrl(status.url);
+      setPreviewOpen(true);
+      refreshPreviewFrame();
+      return;
+    }
+    await ensureLivePreview({ open: true });
+  }, [projectId, previewOpen, previewUrl, ensureLivePreview, refreshPreviewFrame]);
+
+  useEffect(() => {
+    if (!projectId) {
+      setPreviewOpen(false);
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const status = await fetchPreviewStatus(projectId);
+      if (cancelled) return;
+      if (status.running && status.url) {
+        setPreviewUrl(status.url);
+      } else {
+        setPreviewUrl(null);
+        setPreviewOpen(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -689,6 +780,15 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           >
             لوحة
           </button>
+          <button
+            type="button"
+            className={`ide-tb ${previewOpen ? "is-on" : ""}`}
+            disabled={!projectId || previewBusy}
+            onClick={() => void toggleLivePreview()}
+            title="Live Preview — اختبر الموقع أثناء البناء"
+          >
+            {previewBusy ? "…" : previewOpen ? "إخفاء المعاينة" : "معاينة"}
+          </button>
               <button
                 type="button"
                 className={`ide-tb ${showAgent ? "is-on" : ""}`}
@@ -720,7 +820,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
 
   return (
     <div
-      className={`ide-shell ${rightPanel ? "has-agent" : ""} ${rightPanel === "venture" ? "has-venture" : ""} ${explorerOpen ? "" : "explorer-collapsed"}`.trim()}
+      className={`ide-shell ${rightPanel ? "has-agent" : ""} ${rightPanel === "venture" ? "has-venture" : ""} ${previewOpen ? "has-preview" : ""} ${explorerOpen ? "" : "explorer-collapsed"}`.trim()}
       style={shellStyle}
     >
       {topbarHost ? createPortal(ideTopbar, topbarHost) : null}
@@ -979,6 +1079,70 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           ) : null}
         </main>
 
+        {previewOpen && projectId ? (
+          <aside className="ide-preview" aria-label="Live Preview">
+            <div className="ide-preview__head">
+              <div className="ide-preview__title">
+                <strong>معاينة مباشرة</strong>
+                {previewUrl ? (
+                  <a href={previewUrl} target="_blank" rel="noreferrer" dir="ltr">
+                    {previewUrl}
+                  </a>
+                ) : (
+                  <span>جاري التشغيل…</span>
+                )}
+              </div>
+              <div className="ide-preview__actions">
+                <button
+                  type="button"
+                  className="ide-tb"
+                  disabled={previewBusy}
+                  onClick={() => refreshPreviewFrame()}
+                  title="تحديث"
+                >
+                  تحديث
+                </button>
+                <button
+                  type="button"
+                  className="ide-tb"
+                  disabled={previewBusy}
+                  onClick={() => void ensureLivePreview({ open: true })}
+                  title="إعادة تشغيل السيرفر"
+                >
+                  تشغيل
+                </button>
+                <button
+                  type="button"
+                  className="ide-tb"
+                  disabled={previewBusy}
+                  onClick={() => void stopLivePreview()}
+                  title="إيقاف السيرفر"
+                >
+                  إيقاف
+                </button>
+                <button
+                  type="button"
+                  className="ide-tb"
+                  onClick={() => setPreviewOpen(false)}
+                  title="إخفاء اللوحة"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+            {previewUrl ? (
+              <iframe
+                key={previewKey}
+                className="ide-preview__frame"
+                title="Live Preview"
+                src={previewUrl}
+              />
+            ) : (
+              <div className="ide-preview__empty">اضغط تشغيل لبدء السيرفر المحلي.</div>
+            )}
+          </aside>
+        ) : null}
+
         {rightPanel && projectId ? (
           <div className="ide-right-dock" data-panel={rightPanel}>
             <div
@@ -1004,6 +1168,10 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
                 onOpenPath={(p) => void openFile(p)}
                 onLog={(text) => bottomRef.current?.appendOutput(text, "meta")}
                 initialSessionId={agentSessionId}
+                onAfterWebEdits={() => {
+                  void ensureLivePreview({ open: true, silent: false });
+                }}
+                livePreviewUrl={previewUrl}
                 onStartVenture={(brief) => {
                   setVentureSeed(brief);
                   setRightPanel("venture");

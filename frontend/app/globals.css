@@ -4829,6 +4829,95 @@ body.ide-resizing .ide-sash::after {
   grid-template-columns: var(--ide-explorer-w, 240px) minmax(0, 1fr) var(--ide-dock-w, 420px);
 }
 
+.ide-shell.has-preview .ide-body {
+  grid-template-columns: var(--ide-explorer-w, 240px) minmax(0, 1fr) minmax(280px, 38%);
+}
+
+.ide-shell.has-preview.has-agent .ide-body,
+.ide-shell.has-preview.has-venture .ide-body {
+  grid-template-columns: var(--ide-explorer-w, 240px) minmax(0, 1fr) minmax(240px, 32%) var(--ide-dock-w, 380px);
+}
+
+.ide-shell.has-preview.explorer-collapsed .ide-body {
+  grid-template-columns: 44px minmax(0, 1fr) minmax(280px, 38%);
+}
+
+.ide-shell.has-preview.has-agent.explorer-collapsed .ide-body,
+.ide-shell.has-preview.has-venture.explorer-collapsed .ide-body {
+  grid-template-columns: 44px minmax(0, 1fr) minmax(240px, 32%) var(--ide-dock-w, 380px);
+}
+
+.ide-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.07);
+  background: #0b1018;
+}
+
+.ide-preview__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.65rem;
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #0e1520;
+}
+
+.ide-preview__title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.ide-preview__title strong {
+  font-size: 0.78rem;
+}
+
+.ide-preview__title a,
+.ide-preview__title span {
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22rem;
+}
+
+.ide-preview__title a:hover {
+  color: #9ec1ff;
+}
+
+.ide-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.ide-preview__frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+
+.ide-preview__empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 1rem;
+}
+
 .ide-right-dock {
   position: relative;
   display: flex;
