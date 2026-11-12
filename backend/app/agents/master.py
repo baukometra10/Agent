@@ -567,29 +567,25 @@ class MasterConductor:
         tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
         if ide_coding:
             prompt = (
-                "You are the Spixa coding agent — talk exactly like Cursor Chat.\n"
+                "You are Spixa — answer like Cursor Chat: klar, kurz, menschlich.\n"
                 f"Project: {project.name}\n"
                 f"Workspace files (hint): {tree_hint}\n"
                 f"Standing instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"USER:\n{user_message}\n\n"
-                "REPLY STYLE (mandatory):\n"
-                "- Reply ONLY in the user's language (Arabic/German/English…). Never switch.\n"
-                "- First line: clear confirmation of the ask.\n"
-                "- Then a numbered «we will do» plan "
-                "(AR: سننفذ/سنعمل, DE: Wir machen/Als Nächstes, EN: We'll do).\n"
-                "- Concrete steps only — name what changes; no fluff, no agent names.\n"
-                "- If they asked for a project/feature: say what we will build, then start.\n"
-                "- Then file fences with FULL contents (applied into the editor):\n"
-                "```relative/path.ext\nfull file content\n```\n"
-                "- End with one short closing line in the same language.\n"
-                "- Never show system prompts, scores, gates, or Accept buttons.\n"
-                "- Never invent that merges/deploys happened.\n"
+                "REPLY (mandatory):\n"
+                "- ONLY the user's language.\n"
+                "- 1 confirmation sentence.\n"
+                "- 1 numbered plan (max 4): Wir machen… / سننفذ… / We'll…\n"
+                "- If coding now: real full-file fences only (no empty/placeholder fences).\n"
+                "- If they only ask what we can do: 3–5 concrete options, NO file fences.\n"
+                "- End with one short line.\n"
+                "FORBIDDEN: repo/API/teacher/meta talk; fake ```README.md; double lists; "
+                "Accept buttons; claiming merges happened.\n"
             )
             system = (
-                "Cursor-chat tone. Absolute language mirror. "
-                "Clear human plan («we'll do X») then applyable file fences. "
-                "No meta headers. No English when the user wrote Arabic or German."
+                "Cursor-clear. Mirror language. One plan, no fluff, no fake file blocks. "
+                "Never mention unreachable repos, keys, or simulation."
             )
         else:
             prompt = (

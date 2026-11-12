@@ -34,6 +34,19 @@ export function parseAgentEdits(reply: string): FileEdit[] {
     const header = m[1].trim();
     const body = m[2].replace(/\r\n/g, "\n");
     if (!header) continue;
+    // Skip placeholder / non-code fences that confuse apply + UI
+    const trimmedBody = body.trim();
+    if (
+      /noch keine datei|no file change|placeholder|nicht erreichbar|sag mir|welche aufgabe/i.test(
+        trimmedBody,
+      ) ||
+      (trimmedBody.length > 0 &&
+        trimmedBody.length < 80 &&
+        !/[;{}=<>]|^\s*(def|class|function|import|const|let|#include)/m.test(trimmedBody) &&
+        /option|aufgabe|feature|bug|test|readme|starten/i.test(trimmedBody))
+    ) {
+      continue;
+    }
     const parts = header.split(/\s+/);
     let filePath = "";
     let kind: "file" | "dir" = "file";
@@ -46,6 +59,7 @@ export function parseAgentEdits(reply: string): FileEdit[] {
       filePath = parts[0];
     }
     if (!filePath || filePath.length > 240 || !PATH_OK.test(filePath)) continue;
+    if (kind !== "dir" && !body.trim()) continue;
     edits.push({
       path: filePath.replace(/\\/g, "/"),
       content: kind === "dir" ? "" : body,
@@ -235,6 +249,10 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*فهم الطلب\s*[←→].*$/gim, "")
     .replace(/^.*Never claim code was merged.*$/gim, "")
     .replace(/^.*Never mix this project's memory.*$/gim, "")
+    // Cloud/teacher meta that confuses the user
+    .replace(/^.*(?:nicht erreichbar|unreachable|repository|source control|missing_.*_key|simulated:).*$/gim, "")
+    .replace(/^.*Noch keine Dateiänderung.*$/gim, "")
+    .replace(/^.*Sag mir, welche Aufgabe.*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
