@@ -391,7 +391,20 @@ class RapidLearnBody(BaseModel):
     files: list[str] = Field(default_factory=list)
     intent: str = "implement"
     store_standing: bool = True
-    distill_memory: bool = True
+    # Default off — heavy LTM sweep is debounced so every apply stays instant
+    distill_memory: bool = False
+
+
+class OperationOutcomeBody(BaseModel):
+    kind: str = Field(min_length=3, max_length=40)
+    title: str = Field(default="", max_length=200)
+    detail: str = Field(default="", max_length=4000)
+    project_id: str | None = None
+    user_text: str = Field(default="", max_length=8000)
+    assistant_text: str = Field(default="", max_length=12000)
+    files: list[str] = Field(default_factory=list)
+    intent: str | None = None
+    human_verified: bool = False
 
 
 @router.post("/handoff/distill-project")
@@ -463,8 +476,24 @@ async def handoff_rapid_learn(body: RapidLearnBody, db: AsyncSession = Depends(g
         await db.flush()
         standing_id = str(node.id)
 
+    from app.learning.operation_outcome import learn_from_operation, should_distill_project_memory
+
+    learn_from_operation(
+        kind="edits_accepted",
+        title="IDE human-applied edit",
+        detail=body.user_text[:1500],
+        project_id=str(pid),
+        user_text=body.user_text,
+        assistant_text=body.assistant_text or "Applied IDE edits.",
+        files=body.files,
+        intent=body.intent,
+        human_verified=True,
+        distill_pair=False,  # rapid_learn_ide_turn already distilled
+    )
+
     memory_report = None
-    if body.distill_memory:
+    want_memory = body.distill_memory or should_distill_project_memory(str(pid))
+    if want_memory:
         memory_report = await handoff.distill_project_memory(db, pid, limit=24)
 
     await db.commit()
@@ -474,7 +503,52 @@ async def handoff_rapid_learn(body: RapidLearnBody, db: AsyncSession = Depends(g
         "experience": experience,
         "standing_instruction_id": standing_id,
         "memory": memory_report,
+        "memory_debounced": not want_memory,
     }
+
+
+@router.get("/handoff/learning-pulse")
+async def ownership_learning_pulse():
+    from app.learning.operation_outcome import learning_pulse
+    from app.learning.experience import get_experience_journal
+
+    pulse = learning_pulse()
+    pulse["experience"] = get_experience_journal().stats()
+    pulse["handoff"] = get_ownership_handoff().status().get("readiness")
+    return pulse
+
+
+@router.post("/handoff/operation-outcome")
+async def ownership_operation_outcome(body: OperationOutcomeBody):
+    """Learn ASAP from any agent operation (accept/reject/abort/preview/error)."""
+    from app.learning.operation_outcome import learn_from_operation
+
+    allowed: set[str] = {
+        "chat_success",
+        "chat_error",
+        "chat_abort",
+        "edits_accepted",
+        "edits_rejected",
+        "edits_failed",
+        "preview_ok",
+        "preview_fail",
+        "build_ok",
+        "build_fail",
+    }
+    kind = body.kind.strip()
+    if kind not in allowed:
+        raise HTTPException(status_code=400, detail=f"invalid kind; use one of {sorted(allowed)}")
+    return learn_from_operation(
+        kind=kind,  # type: ignore[arg-type]
+        title=body.title or kind,
+        detail=body.detail or body.assistant_text or body.user_text or kind,
+        project_id=body.project_id,
+        user_text=body.user_text,
+        assistant_text=body.assistant_text,
+        files=body.files,
+        intent=body.intent,
+        human_verified=body.human_verified,
+    )
 
 
 @router.get("/host")

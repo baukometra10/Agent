@@ -34,7 +34,7 @@ import {
 import { LocalFolderBrowser } from "@/components/projects/LocalFolderBrowser";
 import { useIdeTopbarActive, useIdeTopbarHost } from "@/components/shell/IdeTopbarSlot";
 import { loadIdeLayout, saveIdeLayout, type IdeRightPanel } from "@/lib/ideLayout";
-import { recordCodingTaskOutcome } from "@/lib/maturity";
+import { learnFromOperation, recordCodingTaskOutcome } from "@/lib/maturity";
 import { CodeEditor, type EditorCursorState } from "./CodeEditor";
 import { resolveShare } from "@/lib/agentPanel/agentUiApi";
 import { IdeAgentPanel } from "./IdeAgentPanel";
@@ -567,6 +567,13 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           if (!opts?.silent) {
             setStatus(`معاينة: ${started.error || "تعذّر التشغيل"}`);
           }
+          void learnFromOperation({
+            kind: "preview_fail",
+            title: "Live preview failed",
+            detail: String(started.error || "preview_start_failed"),
+            projectId,
+            intent: "implement",
+          });
           return;
         }
         setPreviewUrl(started.url);
@@ -576,6 +583,14 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           setStatus(`Live Preview · ${started.url}`);
         }
         bottomRef.current?.appendOutput(`Live Preview · ${started.url}`, "meta");
+        void learnFromOperation({
+          kind: "preview_ok",
+          title: "Live preview running",
+          detail: started.url,
+          projectId,
+          intent: "implement",
+          humanVerified: true,
+        });
       } finally {
         setPreviewBusy(false);
       }

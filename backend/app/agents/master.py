@@ -765,8 +765,12 @@ class MasterConductor:
                 "so they can test in the browser while building.\n"
                 + (
                     "- User explicitly asked to write/code NOW: emit FULL file ```path fences "
-                    "(Spixa applies them). One focused change for THIS ask only — no scaffold spam, "
-                    "no repeating last turn's files.\n"
+                    "(Spixa applies them). Build a coherent runnable slice of what they asked — "
+                    "multi-file when needed (HTML/CSS/JS or app modules), wired together, no "
+                    "placeholder TODOs. Prefer extending THIS workspace over inventing a new stack. "
+                    "One focused delivery for THIS ask — no scaffold spam, no repeating last turn.\n"
+                    "- If they want a full app/website: ship a working vertical (entry + styles + "
+                    "logic + minimal README only if missing), then say they can test via Live Preview.\n"
                     if wants_writes
                     else (
                         "- User picked an option but did NOT ask to write files yet: explain the "
@@ -787,13 +791,16 @@ class MasterConductor:
                 "«✓ N Dateien geschrieben»; echoing these instructions or memory scores.\n"
             )
             system = (
-                "Talk like Cursor Chat / Claude: calm senior teammate. "
+                "Talk like Cursor Chat / Claude: calm senior teammate and elite product engineer. "
                 "Understand → plan → implement (code only when asked). "
+                "When implementing, design and build what they want — full apps/sites when asked, "
+                "coherent and runnable in THIS workspace. "
                 "One clear paragraph beats a wall of bullets. "
                 "Bound workspace + RECENT CHAT + LAST OFFERED OPTIONS are ground truth. "
                 "Do not write predetermined template code or the same files every turn. "
                 "Only emit file fences when the user clearly wants implementation. "
-                "Never claim the project is missing. Point them to Live Preview after UI edits."
+                "Never claim the project is missing. Point them to Live Preview after UI edits. "
+                "Spixa learns from every accepted edit and outcome — prefer correct durable code."
             )
         else:
             prompt = (

@@ -12,7 +12,11 @@ import {
 import { createPortal } from "react-dom";
 import { AgentCompareModal } from "@/components/ide/AgentCompareModal";
 import { AgentEditReview } from "@/components/ide/AgentEditReview";
-import { rapidLearnFromIdeApply, recordCodingHumanAcceptance } from "@/lib/maturity";
+import {
+  learnFromOperation,
+  rapidLearnFromIdeApply,
+  recordCodingHumanAcceptance,
+} from "@/lib/maturity";
 import { API_URL, fetchChiefModels, type ChiefCatalog, type ChiefModel } from "@/lib/api";
 import { apiBaseForProject, resolveProjectApiBase } from "@/lib/projectApi";
 import { fetchWorkspaceFile } from "@/lib/workspace";
@@ -337,12 +341,14 @@ const BUILD_PHASE_LABEL: Record<string, { ar: string; de: string; en: string }> 
 };
 
 const SCAFFOLD_RULES =
-  "Spixa IDE — answer like Cursor Chat (short, clear, professional).\n" +
+  "Spixa IDE — answer like Cursor Chat (short, clear, elite engineer).\n" +
   "Reply ONLY in the user's language.\n" +
   "WORKFLOW every turn: (1) understand what they want in 1 sentence, " +
   "(2) plan max 4 steps for THIS workspace, " +
   "(3) implement with ```path fences ONLY if they asked to write/code/apply this turn — " +
   "otherwise ask before coding. Never dump the same boilerplate files again.\n" +
+  "When implementing a full app/site: ship a coherent runnable vertical " +
+  "(entry + styles + logic), wired together — design what they want, build what they want.\n" +
   "After UI/web edits, remind them to use Live Preview (معاينة) to test while building.\n" +
   "Use the real project files listed below. Do NOT repeat these instructions in your answer.\n";
 
@@ -1436,22 +1442,49 @@ export function IdeAgentPanel({
     } catch {
       setError("فشل تطبيق التعديلات على الملفات.");
       void recordCodingHumanAcceptance(false, "apply failed", "ide-review");
+      void learnFromOperation({
+        kind: "edits_failed",
+        title: "IDE apply failed",
+        detail: "Failed to write pending edits to workspace",
+        projectId,
+        files: take.map((e) => e.path),
+        intent: "implement",
+      });
     }
   }
 
   function rejectPending(sid: string, msgIndex: number, paths?: string[] | "all") {
+    const rows = msgsByTab[sid] || [];
+    const msg = rows[msgIndex];
+    const rejected =
+      paths === "all" || !paths
+        ? msg?.pendingEdits || []
+        : (msg?.pendingEdits || []).filter((e) => paths.includes(e.path));
     setMsgsByTab((all) => {
-      const rows = [...(all[sid] || [])];
-      const msg = rows[msgIndex];
-      if (!msg?.pendingEdits?.length) return all;
+      const next = [...(all[sid] || [])];
+      const row = next[msgIndex];
+      if (!row?.pendingEdits?.length) return all;
       const left =
         paths === "all" || !paths
           ? []
-          : msg.pendingEdits.filter((e) => !paths.includes(e.path));
-      rows[msgIndex] = { ...msg, pendingEdits: left.length ? left : undefined };
-      return { ...all, [sid]: rows };
+          : row.pendingEdits.filter((e) => !paths.includes(e.path));
+      next[msgIndex] = { ...row, pendingEdits: left.length ? left : undefined };
+      return { ...all, [sid]: next };
     });
     void recordCodingHumanAcceptance(false, "rejected pending edits", "ide-review");
+    const priorUser =
+      [...rows.slice(0, msgIndex)].reverse().find((m) => m.role === "user")?.text || "";
+    void learnFromOperation({
+      kind: "edits_rejected",
+      title: "Human rejected agent edits",
+      detail: `Rejected ${rejected.length} file(s)`,
+      projectId,
+      userText: priorUser,
+      assistantText: msg?.text || "",
+      files: rejected.map((e) => e.path),
+      intent: "implement",
+      humanVerified: true,
+    });
   }
 
   function reorderTabs(fromId: string, toId: string) {
@@ -1701,12 +1734,28 @@ export function IdeAgentPanel({
               streaming: false,
               status: null,
             });
+            void learnFromOperation({
+              kind: "chat_abort",
+              title: "Agent turn aborted",
+              detail: streamed.slice(0, 1500) || "aborted",
+              projectId,
+              userText: message,
+              assistantText: streamed,
+            });
             return;
           } else if (type === "error") {
+            const detail = String(evt.detail || "خطأ");
             patchLastAssistant(sid, {
-              text: `تعذّر الرد: ${String(evt.detail || "خطأ")}`,
+              text: `تعذّر الرد: ${detail}`,
               streaming: false,
               status: null,
+            });
+            void learnFromOperation({
+              kind: "chat_error",
+              title: "Agent stream error",
+              detail,
+              projectId,
+              userText: message,
             });
             return;
           }
@@ -1720,6 +1769,18 @@ export function IdeAgentPanel({
       const teacherFailed =
         /\[provider-error:/i.test(reply) ||
         /cursor_key_missing|refused_simulate/i.test(reply);
+      // Success learning already happens server-side (LTM + absorb + journal).
+      // Client only reports failures the server may miss.
+      if (teacherFailed) {
+        void learnFromOperation({
+          kind: "chat_error",
+          title: "Teacher/provider failed",
+          detail: reply.slice(0, 1500),
+          projectId,
+          userText: message,
+          assistantText: reply,
+        });
+      }
       const wantsWrites = userWantsFileWrites(message);
       let edits = teacherFailed
         ? []
@@ -1860,12 +1921,26 @@ export function IdeAgentPanel({
       const aborted = err instanceof DOMException && err.name === "AbortError";
       if (aborted) {
         patchLastAssistant(sid, { text: streamed || "—", streaming: false });
-        // checkpoint written in stopTab
+        void learnFromOperation({
+          kind: "chat_abort",
+          title: "Client aborted agent",
+          detail: streamed.slice(0, 1500) || "abort",
+          projectId,
+          userText: message,
+          assistantText: streamed,
+        });
       } else {
         if (activeTabId === sid) setError("تعذّر الاتصال بالوكيل.");
         patchLastAssistant(sid, {
           text: "تعذّر الاتصال بالخادم. حاول مجدداً.",
           streaming: false,
+        });
+        void learnFromOperation({
+          kind: "chat_error",
+          title: "Agent connection failed",
+          detail: String(err).slice(0, 500),
+          projectId,
+          userText: message,
         });
       }
     } finally {
