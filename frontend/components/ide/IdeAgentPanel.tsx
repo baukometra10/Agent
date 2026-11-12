@@ -84,6 +84,13 @@ type DecisionLog = {
   evaluations?: SpecialistEval[];
 };
 
+type AgentStatus = {
+  phase: string;
+  label: string;
+  step?: number;
+  total?: number;
+};
+
 type Msg = {
   role: "user" | "assistant";
   text: string;
@@ -95,6 +102,7 @@ type Msg = {
   model?: string | null;
   simulated?: boolean;
   streaming?: boolean;
+  status?: AgentStatus | null;
   decision?: DecisionLog | null;
 };
 
@@ -202,16 +210,19 @@ const UI_LANG = {
     why: "لماذا؟",
     understood: "فهم الطلب",
     executing: "تنفيذ الطلب في مساحة العمل.",
+    thinking: "يفكر…",
   },
   de: {
     why: "Warum?",
     understood: "Anfrage verstanden",
     executing: "Umsetzung im Workspace.",
+    thinking: "Denkt nach…",
   },
   en: {
     why: "Why?",
     understood: "Understood",
     executing: "Executing in the workspace.",
+    thinking: "Thinking…",
   },
 } as const;
 
@@ -267,17 +278,18 @@ type Props = {
 };
 
 const SCAFFOLD_RULES =
-  "You are Spixa — Cursor-clear partner: understand the user, then act.\n" +
+  "You are Spixa — reply with the professionalism of Cursor Chat and Claude.\n" +
+  "Tone: calm, precise, senior engineer. No fluff, no hype, no emoji spam.\n" +
   "LANGUAGE: Reply ONLY in the user's chat language (AR/DE/EN…). Never switch mid-answer.\n" +
   "UNDERSTAND FIRST:\n" +
-  "- Infer what they want NOW and what they want to REACH (goal/destination).\n" +
-  "- If a project/tree exists: use it — propose developments from real files, not generic advice.\n" +
-  "- If empty/new: propose a concrete build path (structure → first feature → how we ship).\n" +
-  "WHEN THEY NEED A PLAN:\n" +
-  "1) One short confirmation of the goal in their language.\n" +
+  "- State the goal you inferred in one crisp sentence.\n" +
+  "- Ground every suggestion in the real project tree/files when present.\n" +
+  "- If empty/new: propose a concrete build path (structure → first feature → next).\n" +
+  "STRUCTURE (Cursor/Claude style):\n" +
+  "1) One confirmation of understanding.\n" +
   "2) One numbered plan (max 4): سننفذ… / Wir machen… / We'll…\n" +
-  "3) If coding now: real full-file fences only.\n" +
-  "4) One short closing question — stay in dialogue.\n" +
+  "3) If coding now: real FULL-file fences only (applyable).\n" +
+  "4) One short closing question OR a single «done» line.\n" +
   "If they only ask what we can do: 3–5 concrete options from THIS workspace, no fences.\n" +
   "FORBIDDEN: empty/fake fences; double lists; repo/API/teacher/keys/meta; agent names/scores; "
   + "saying files are missing/unreachable (listed tree files EXIST — emit fences; IDE applies).\n" +
@@ -1502,6 +1514,12 @@ export function IdeAgentPanel({
       text: "",
       agent: chiefLabel,
       streaming: true,
+      status: {
+        phase: "thinking",
+        label: UI_LANG[detectUserLang(message)].thinking,
+        step: 1,
+        total: 4,
+      },
     });
     if (!isResume) renameTab(sid, topic);
 
@@ -1574,16 +1592,23 @@ export function IdeAgentPanel({
           }
           const type = String(evt.type || "");
           if (type === "status") {
-            const label = String(evt.text || "working");
-            if (!streamed) {
-              patchLastAssistant(sid, {
-                text: label === "working" || label === "started" ? "…" : label,
-                streaming: true,
-              });
-            }
+            const label = String(evt.text || UI_LANG[detectUserLang(message)].thinking);
+            const phase = String(evt.phase || "thinking");
+            const step = typeof evt.step === "number" ? evt.step : undefined;
+            const total = typeof evt.total === "number" ? evt.total : undefined;
+            patchLastAssistant(sid, {
+              // Keep bubble empty until deltas — status lives in the think row
+              text: streamed || "",
+              streaming: true,
+              status: { phase, label, step, total },
+            });
           } else if (type === "delta") {
             streamed += String(evt.text || "");
-            patchLastAssistant(sid, { text: streamed, streaming: true });
+            patchLastAssistant(sid, {
+              text: streamed,
+              streaming: true,
+              status: null,
+            });
           } else if (type === "done") {
             donePayload = evt;
             streamed = String(evt.reply || streamed);
@@ -1591,12 +1616,14 @@ export function IdeAgentPanel({
             patchLastAssistant(sid, {
               text: streamed || "—",
               streaming: false,
+              status: null,
             });
             return;
           } else if (type === "error") {
             patchLastAssistant(sid, {
               text: `تعذّر الرد: ${String(evt.detail || "خطأ")}`,
               streaming: false,
+              status: null,
             });
             return;
           }
@@ -1628,6 +1655,7 @@ export function IdeAgentPanel({
         model: modelId,
         simulated,
         streaming: false,
+        status: null,
         decision: decision
           ? {
               ...decision,
@@ -2146,9 +2174,22 @@ export function IdeAgentPanel({
             className={`ide-agent__msg is-${m.role}${m.streaming ? " is-streaming" : ""}`}
           >
             <span className="ide-agent__role">{m.role === "user" ? "You" : m.agent || "Spixa"}</span>
+            {m.streaming && (m.status || !m.text) ? (
+              <div className="ide-agent__think" aria-live="polite">
+                <span className="ide-agent__think-pulse" aria-hidden />
+                <span className="ide-agent__think-label">
+                  {m.status?.label || ui.thinking}
+                </span>
+                {m.status?.step && m.status?.total ? (
+                  <span className="ide-agent__think-step" dir="ltr">
+                    {m.status.step}/{m.status.total}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {hasBody || m.role === "user" ? (
               <div className="ide-agent__bubble">
-                {m.text || (m.streaming ? "…" : "")}
+                {m.text || ""}
               </div>
             ) : null}
             {m.pendingEdits?.length && activeTabId ? (

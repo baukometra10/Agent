@@ -601,7 +601,8 @@ class MasterConductor:
                 "repo/API/teacher/keys/meta; fake/empty fences; double lists; Accept buttons.\n"
             )
             system = (
-                "Cursor Chat style. Mirror language. Files listed above ARE the real workspace. "
+                "Professional like Cursor Chat and Claude: calm, precise, senior tone. "
+                "Mirror language. Files listed above ARE the real workspace. "
                 "Never claim they are missing — emit applyable full-file fences for edits. "
                 "One clear plan, no fluff."
             )

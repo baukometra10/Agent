@@ -28,6 +28,42 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _status_lang(text: str) -> str:
+    raw = text or ""
+    if any("\u0600" <= ch <= "\u06FF" for ch in raw):
+        return "ar"
+    low = raw.lower()
+    if any(
+        w in low
+        for w in ("ich", "wir", "bitte", "machen", "können", "projekt", "und", "eine", "app", "bau")
+    ) or any(ch in low for ch in "äöüß"):
+        return "de"
+    return "en"
+
+
+# Cursor/Claude-like progress phases while the teacher runs
+_STATUS_PHASES: dict[str, list[tuple[str, str]]] = {
+    "ar": [
+        ("thinking", "يفكر…"),
+        ("reading", "يقرأ المشروع…"),
+        ("planning", "يضع خطة…"),
+        ("generating", "يكتب الرد…"),
+    ],
+    "de": [
+        ("thinking", "Denkt nach…"),
+        ("reading", "Liest das Projekt…"),
+        ("planning", "Plant den nächsten Schritt…"),
+        ("generating", "Schreibt die Antwort…"),
+    ],
+    "en": [
+        ("thinking", "Thinking…"),
+        ("reading", "Reading the project…"),
+        ("planning", "Planning next steps…"),
+        ("generating", "Writing the reply…"),
+    ],
+}
+
+
 def _projects(session: AsyncSession = Depends(get_db)) -> ProjectService:
     return ProjectService(session)
 
@@ -256,7 +292,10 @@ async def send_message_stream(
             pass
 
     async def event_gen() -> AsyncIterator[str]:
-        yield _sse({"type": "status", "text": "started"})
+        lang = _status_lang(payload.message or "")
+        phases = _STATUS_PHASES.get(lang) or _STATUS_PHASES["en"]
+        phase0, label0 = phases[0]
+        yield _sse({"type": "status", "phase": phase0, "text": label0, "step": 1, "total": len(phases)})
         limit = int(payload.max_seconds or 90)
         limit = max(15, min(limit, 3600))
         task = asyncio.create_task(
@@ -275,6 +314,7 @@ async def send_message_stream(
             )
         )
         pulse = 0
+        phase_idx = 0
         partial_out = ""
         try:
             while not task.done():
@@ -288,8 +328,19 @@ async def send_message_stream(
                     yield _sse({"type": "aborted"})
                     return
                 pulse += 1
-                if pulse % 5 == 0:
-                    yield _sse({"type": "status", "text": "working"})
+                # Advance status every ~1.6s (8 * 0.2) like Cursor step ticks
+                if pulse % 8 == 0 and phase_idx < len(phases) - 1:
+                    phase_idx += 1
+                    phase, label = phases[phase_idx]
+                    yield _sse(
+                        {
+                            "type": "status",
+                            "phase": phase,
+                            "text": label,
+                            "step": phase_idx + 1,
+                            "total": len(phases),
+                        }
+                    )
                 if pulse * 0.2 >= limit:
                     task.cancel()
                     try:
@@ -315,6 +366,20 @@ async def send_message_stream(
             return
 
         reply = str(result.get("reply") or "")
+        streaming_label = {
+            "ar": "يبث الرد…",
+            "de": "Antwort kommt…",
+            "en": "Streaming reply…",
+        }.get(lang, "Streaming reply…")
+        yield _sse(
+            {
+                "type": "status",
+                "phase": "streaming",
+                "text": streaming_label,
+                "step": len(phases),
+                "total": len(phases),
+            }
+        )
         # Progressive deltas so the UI can render live
         step = max(12, min(48, len(reply) // 40 or 12))
         for i in range(0, len(reply), step):

@@ -5583,7 +5583,7 @@ body.ide-resizing .ide-sash::after {
   font: inherit;
 }
 
-.ide-agent__msg.is-streaming .ide-agent__bubble::after {
+.ide-agent__msg.is-streaming .ide-agent__bubble:not(:empty)::after {
   content: "▍";
   margin-inline-start: 0.15rem;
   animation: ide-blink 1s steps(1) infinite;
@@ -5594,6 +5594,46 @@ body.ide-resizing .ide-sash::after {
   50% {
     opacity: 0;
   }
+}
+
+/* Cursor/Claude-like live agent status */
+.ide-agent__think {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 150, 220, 0.28);
+  background: rgba(18, 26, 44, 0.88);
+  color: #b8c7e0;
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+.ide-agent__think-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7aa2ff;
+  box-shadow: 0 0 0 0 rgba(122, 162, 255, 0.45);
+  animation: status-pulse 1.4s ease-out infinite;
+  flex-shrink: 0;
+}
+
+.ide-agent__think-label {
+  font-weight: 500;
+  color: #d7e2f5;
+}
+
+.ide-agent__think-step {
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+}
+
+.ide-agent__msg.is-streaming .ide-agent__bubble:empty {
+  display: none;
 }
 
 .ide-composer__send.is-stop {
