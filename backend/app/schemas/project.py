@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class ProjectCreate(BaseModel):
@@ -128,8 +128,18 @@ class ChatSessionOut(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime | None = None
+    meta: dict[str, Any] | None = None
+    build_phase: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _sync_build_phase(self) -> "ChatSessionOut":
+        if not self.build_phase and isinstance(self.meta, dict):
+            phase = self.meta.get("build_phase")
+            if isinstance(phase, str) and phase.strip():
+                self.build_phase = phase.strip()
+        return self
 
 
 class ChatSessionCreate(BaseModel):

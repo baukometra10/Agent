@@ -730,7 +730,7 @@ export function IdeAgentPanel({
             lastUserText = display;
             return { role, text: display };
           }
-          const edits = parseAgentEdits(content);
+          const parsed = ensureBuildEdits(content, lastUserText, parseAgentEdits(content));
           const decision = (payload.decision_log || null) as DecisionLog | null;
           const internal = (payload.internal || {}) as Record<string, unknown>;
           const simulated = Boolean(
@@ -743,16 +743,24 @@ export function IdeAgentPanel({
               : Array.isArray(decision?.specialists)
                 ? decision!.specialists
                 : [];
+          const buildPhase = String(payload.build_phase || "");
+          const editsState = String(payload.edits_state || "");
+          const treatPending =
+            parsed.length > 0 &&
+            (editsState === "proposed" ||
+              editsState === "pending" ||
+              (!editsState && (buildPhase === "plan" || buildPhase === "understand")));
           return {
             role,
-            text: displayAgentReply(content, edits, lastUserText),
-            edits,
+            text: displayAgentReply(content, parsed, lastUserText),
+            edits: treatPending ? undefined : parsed.length ? parsed : undefined,
+            pendingEdits: treatPending ? parsed : undefined,
             agent: "Spixa",
             routeTier: payload.route_tier ? String(payload.route_tier) : null,
             model: payload.model ? String(payload.model) : null,
             simulated,
             specialists: specialistsRaw.map(String),
-            buildPhase: payload.build_phase ? String(payload.build_phase) : null,
+            buildPhase: buildPhase || null,
             decision,
           };
         });
@@ -1408,11 +1416,14 @@ export function IdeAgentPanel({
           ...row,
           edits: [...(row.edits || []), ...snapped],
           pendingEdits: left.length ? left : undefined,
+          buildPhase: left.length ? row.buildPhase || "plan" : "implement",
         };
         return { ...all, [sid]: cur };
       });
       onLog?.(`applied ${take.length} edit(s)`);
       void recordCodingHumanAcceptance(true, `accepted ${take.length} file(s)`, "ide-review");
+      const webPaths = take.map((e) => e.path).filter(isWebPreviewPath);
+      if (webPaths.length) onAfterWebEdits?.(webPaths);
       const priorUser =
         [...rows.slice(0, msgIndex)].reverse().find((m) => m.role === "user")?.text || "";
       void rapidLearnFromIdeApply({
@@ -1709,9 +1720,10 @@ export function IdeAgentPanel({
       const teacherFailed =
         /\[provider-error:/i.test(reply) ||
         /cursor_key_missing|refused_simulate/i.test(reply);
+      const wantsWrites = userWantsFileWrites(message);
       let edits = teacherFailed
         ? []
-        : sendMode === "ask"
+        : sendMode === "ask" && !wantsWrites
           ? []
           : ensureBuildEdits(reply, message, parseAgentEdits(reply));
       const routeTier = donePayload?.route_tier ? String(donePayload.route_tier) : null;
@@ -1719,16 +1731,16 @@ export function IdeAgentPanel({
       const simulated = Boolean(donePayload?.simulated);
       setLastRoute({ tier: routeTier, model: modelId, simulated });
       const display = displayAgentReply(reply, edits, message);
-      // Plan-first: auto-write only when user asked to implement, or Edit mode with review off.
-      const wantsWrites = userWantsFileWrites(message) || sendMode === "edit";
+      // Plan-first: auto-write only when user clearly asked to implement this turn.
       const useReview =
         edits.length > 0 &&
-        (sendMode === "ask" ||
-          (sendMode === "agent" && !wantsWrites) ||
-          (reviewBeforeApply && sendMode === "edit"));
+        (!wantsWrites || (reviewBeforeApply && sendMode === "edit") || sendMode === "ask");
       const buildPhase = String(
-        donePayload?.build_phase ||
-          (edits.length && wantsWrites ? "implement" : edits.length ? "plan" : "understand"),
+        edits.length && wantsWrites && !useReview
+          ? "implement"
+          : edits.length
+            ? "plan"
+            : donePayload?.build_phase || "understand",
       );
       const decision = (donePayload?.decision || null) as DecisionLog | null;
       patchLastAssistant(sid, {

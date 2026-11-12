@@ -431,6 +431,7 @@ async def send_message_stream(
                 "decision": result.get("decision"),
                 "specialists": result.get("specialists") or [],
                 "build_phase": result.get("build_phase"),
+                "edits_state": result.get("edits_state"),
             }
         )
 

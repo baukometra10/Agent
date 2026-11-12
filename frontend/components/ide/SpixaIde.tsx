@@ -374,6 +374,10 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     );
   }
 
+  const refreshPreviewFrame = useCallback(() => {
+    setPreviewKey((k) => k + 1);
+  }, []);
+
   async function saveActive() {
     if (!projectId || !active || active.kind !== "code") return;
     setBusy(true);
@@ -385,7 +389,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     }
     setTabs((all) => all.map((t) => (t.path === active.path ? { ...t, dirty: false } : t)));
     setStatus(`حُفظ · ${active.path}`);
-    if (previewOpen && previewUrl) refreshPreviewFrame();
+    if (previewUrl) refreshPreviewFrame();
   }
 
   async function createFile() {
@@ -492,7 +496,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     setTabs((all) => all.map((t) => ({ ...t, dirty: false })));
     setBusy(false);
     setStatus(`حُفظ ${dirty.length} ملف`);
-    if (previewOpen && previewUrl) refreshPreviewFrame();
+    if (previewUrl) refreshPreviewFrame();
   }
 
   async function applyEdits(edits: FileEdit[]) {
@@ -547,14 +551,10 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     } else {
       setStatus(`طُبّقت تعديلات الوكيل · ${applied.join(", ")}`);
     }
-    if (previewOpen && previewUrl && applied.length) {
+    if (previewUrl && applied.length) {
       refreshPreviewFrame();
     }
   }
-
-  const refreshPreviewFrame = useCallback(() => {
-    setPreviewKey((k) => k + 1);
-  }, []);
 
   const ensureLivePreview = useCallback(
     async (opts?: { open?: boolean; silent?: boolean }) => {
@@ -563,6 +563,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
       try {
         const started = await startWorkspacePreview(projectId);
         if (!started.running || !started.url) {
+          setPreviewUrl(null);
           if (!opts?.silent) {
             setStatus(`معاينة: ${started.error || "تعذّر التشغيل"}`);
           }
@@ -611,7 +612,15 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     await ensureLivePreview({ open: true });
   }, [projectId, previewOpen, previewUrl, ensureLivePreview, refreshPreviewFrame]);
 
+  const previewProjectRef = useRef<string | null>(null);
   useEffect(() => {
+    const prev = previewProjectRef.current;
+    if (prev && prev !== projectId) {
+      void stopWorkspacePreview(prev);
+      setPreviewOpen(false);
+      setPreviewUrl(null);
+    }
+    previewProjectRef.current = projectId || null;
     if (!projectId) {
       setPreviewOpen(false);
       setPreviewUrl(null);

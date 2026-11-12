@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.agents.master import MasterConductor
+from app.chat.user_topic import extract_user_topic
 from app.db.models import AgentMessage, AgentSession, Project
 from app.learning.experience import get_experience_journal
 from app.memory import ProjectLongTermMemory
@@ -204,58 +205,7 @@ class ChatAgentService:
     @staticmethod
     def _extract_user_topic(text: str) -> str:
         """Pull the real user ask out of IDE scaffold / mode wrappers."""
-        raw = text or ""
-        for marker in (
-            "=== USER MESSAGE (reply in this language) ===",
-            "=== USER MESSAGE ===",
-            "طلب المستخدم:",
-            "User request:",
-            "User:",
-            "طلب المستخدم",
-        ):
-            if marker in raw:
-                raw = raw.split(marker)[-1]
-                break
-        # Drop common IDE preamble lines if marker missing
-        lines = []
-        for line in raw.splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            if s.startswith("[mode:"):
-                continue
-            if s.startswith("أنت وكيل") or s.startswith("العقل الرئيس"):
-                continue
-            if s.startswith("You are the Spixa") or s.startswith("You are Spixa") or s.startswith("LANGUAGE (mandatory)"):
-                continue
-            if s.startswith("Spixa IDE") or s.startswith("WORKFLOW every turn"):
-                continue
-            if s.startswith("After UI/web") or s.startswith("Live Preview"):
-                continue
-            if s.startswith("وضع الوكيل") or s.startswith("وضع السؤال") or s.startswith("وضع التعديل"):
-                continue
-            if s.startswith("Mode=agent") or s.startswith("Mode=ask") or s.startswith("Mode=edit"):
-                continue
-            if s.startswith("Execution first") or s.startswith("When creating or editing"):
-                continue
-            if s.startswith("Build / site") or s.startswith("Ask clarifying"):
-                continue
-            if s.startswith("شجرة المشروع") or s.startswith("ملف مفتوح") or s.startswith("لا ملف"):
-                continue
-            if s.startswith("Project tree") or s.startswith("Selected brain") or s.startswith("Linked file"):
-                continue
-            if s.startswith("No file open") or s.startswith("Attachments:"):
-                continue
-            if s.startswith("الطلب يبدو") or s.startswith("عدّل فقط"):
-                continue
-            if s.startswith("User clearly asked") or s.startswith("Prefer improving"):
-                continue
-            if s.startswith("User wants a new project") or s.startswith("Reply ONLY"):
-                continue
-            if s.startswith("### ") or s.startswith("```"):
-                continue
-            lines.append(s)
-        return " ".join(lines).strip() or (text or "").strip()
+        return extract_user_topic(text)
 
     @classmethod
     def _auto_title(cls, text: str) -> str:
@@ -494,10 +444,13 @@ class ChatAgentService:
         has_options = isinstance(offered_now, dict) and bool(offered_now)
         if wants_writes and reply_has_fences:
             build_phase = "implement"
+            edits_state = "ready"
         elif has_options or (not wants_writes and reply_has_fences):
             build_phase = "plan"
+            edits_state = "proposed" if reply_has_fences else "none"
         else:
             build_phase = "understand"
+            edits_state = "proposed" if reply_has_fences else "none"
         # User-facing decision stays clean; grades/specialists stay internal in tool_payload only.
         decision_log = {
             "intent": result.get("intent"),
@@ -538,6 +491,7 @@ class ChatAgentService:
                     "memory_binding": result.get("memory_binding"),
                     "route_tier": result.get("route_tier"),
                     "build_phase": build_phase,
+                    "edits_state": edits_state,
                     "specialists": result.get("specialists") or [],
                     "decision_log": decision_log,
                     "internal": internal_grades,
@@ -667,6 +621,7 @@ class ChatAgentService:
             "usage": (session.meta or {}).get("usage") if session else usage,
             "decision": decision_log,
             "build_phase": build_phase,
+            "edits_state": edits_state,
         }
 
     async def _project(self, project_id: UUID) -> Project:

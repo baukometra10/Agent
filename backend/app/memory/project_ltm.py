@@ -217,10 +217,9 @@ class ProjectLongTermMemory:
                 if isinstance(display, str) and display.strip():
                     content = display.strip()
                 else:
-                    # Belt-and-suspenders: strip IDE scaffold wrappers from older rows
-                    from app.chat.agent import ChatAgentService
+                    from app.chat.user_topic import extract_user_topic
 
-                    content = ChatAgentService._extract_user_topic(content)
+                    content = extract_user_topic(content)
             out.append({"role": m.role, "content": content})
         return out
 
