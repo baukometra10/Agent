@@ -183,8 +183,10 @@ export type PreviewStatus = {
   serve_root?: string;
   pid?: number;
   kind?: string;
+  command?: string;
   hint?: string;
   error?: string;
+  detail?: string;
 };
 
 export async function fetchPreviewStatus(projectId: string): Promise<PreviewStatus> {
@@ -216,4 +218,62 @@ export async function stopWorkspacePreview(projectId: string): Promise<PreviewSt
     return { running: false, ok: false, error: String(data.detail || "preview_stop_failed") };
   }
   return { ...(data as PreviewStatus), ok: true, running: false };
+}
+
+export async function verifyWorkspacePreview(projectId: string): Promise<{
+  ok: boolean;
+  running?: boolean;
+  url?: string;
+  status_code?: number;
+  kind?: string;
+  has_html?: boolean;
+  error?: string;
+}> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/workspace/preview/verify`, { method: "POST" }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) {
+    return { ok: false, error: String(data.detail || "preview_verify_failed") };
+  }
+  return data;
+}
+
+export type ProjectPreferences = {
+  language?: string;
+  stack?: string;
+  no_scaffold?: boolean;
+  always_preview?: boolean;
+  notes?: string;
+};
+
+export async function fetchProjectPreferences(
+  projectId: string,
+): Promise<{ ok: boolean; preferences: ProjectPreferences; standing_text?: string }> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/memory/preferences`, { cache: "no-store" }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) return { ok: false, preferences: {} };
+  return {
+    ok: true,
+    preferences: (data.preferences || {}) as ProjectPreferences,
+    standing_text: data.standing_text ? String(data.standing_text) : "",
+  };
+}
+
+export async function saveProjectPreferences(
+  projectId: string,
+  prefs: ProjectPreferences,
+): Promise<{ ok: boolean; preferences?: ProjectPreferences; error?: string }> {
+  const res = await withProjectBase(projectId, (base) =>
+    fetch(`${base}/api/projects/${projectId}/memory/preferences`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prefs),
+    }),
+  );
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) return { ok: false, error: String(data.detail || "prefs_failed") };
+  return { ok: true, preferences: data.preferences as ProjectPreferences };
 }

@@ -23,6 +23,7 @@ import {
   saveWorkspaceFile,
   startWorkspacePreview,
   stopWorkspacePreview,
+  verifyWorkspacePreview,
   type TreeEntry,
 } from "@/lib/workspace";
 import {
@@ -117,6 +118,8 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewKind, setPreviewKind] = useState<string>("static");
+  const [previewHint, setPreviewHint] = useState<string>("");
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [explorerW, setExplorerW] = useState(240);
@@ -577,20 +580,40 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           return;
         }
         setPreviewUrl(started.url);
+        setPreviewKind(String(started.kind || "static"));
+        setPreviewHint(String(started.hint || ""));
         if (opts?.open !== false) setPreviewOpen(true);
         refreshPreviewFrame();
         if (!opts?.silent) {
-          setStatus(`Live Preview · ${started.url}`);
+          setStatus(`Live Preview · ${started.kind || "static"} · ${started.url}`);
         }
-        bottomRef.current?.appendOutput(`Live Preview · ${started.url}`, "meta");
+        bottomRef.current?.appendOutput(
+          `Live Preview · ${started.kind || "static"} · ${started.url}`,
+          "meta",
+        );
         void learnFromOperation({
           kind: "preview_ok",
           title: "Live preview running",
-          detail: started.url,
+          detail: `${started.kind || "static"} ${started.url}`,
           projectId,
           intent: "implement",
           humanVerified: true,
         });
+        window.setTimeout(() => {
+          void verifyWorkspacePreview(projectId).then((v) => {
+            if (!opts?.silent) {
+              setStatus(v.ok ? `تحقق المعاينة ✓ · ${v.url}` : `تحقق المعاينة: ${v.error || "فشل"}`);
+            }
+            void learnFromOperation({
+              kind: v.ok ? "build_ok" : "build_fail",
+              title: "Preview verify",
+              detail: String(v.url || v.error || ""),
+              projectId,
+              intent: "implement",
+              humanVerified: Boolean(v.ok),
+            });
+          });
+        }, 900);
       } finally {
         setPreviewBusy(false);
       }
@@ -1109,7 +1132,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           <aside className="ide-preview" aria-label="Live Preview">
             <div className="ide-preview__head">
               <div className="ide-preview__title">
-                <strong>معاينة مباشرة</strong>
+                <strong>معاينة مباشرة · {previewKind || "static"}</strong>
                 {previewUrl ? (
                   <a href={previewUrl} target="_blank" rel="noreferrer" dir="ltr">
                     {previewUrl}
@@ -1117,6 +1140,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
                 ) : (
                   <span>جاري التشغيل…</span>
                 )}
+                {previewHint ? <span>{previewHint}</span> : null}
               </div>
               <div className="ide-preview__actions">
                 <button

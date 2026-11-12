@@ -13,13 +13,22 @@ import { createPortal } from "react-dom";
 import { AgentCompareModal } from "@/components/ide/AgentCompareModal";
 import { AgentEditReview } from "@/components/ide/AgentEditReview";
 import {
+  boostCoreSpecialties,
+  fetchLearningPulse,
   learnFromOperation,
   rapidLearnFromIdeApply,
   recordCodingHumanAcceptance,
+  type LearningPulse,
 } from "@/lib/maturity";
 import { API_URL, fetchChiefModels, type ChiefCatalog, type ChiefModel } from "@/lib/api";
 import { apiBaseForProject, resolveProjectApiBase } from "@/lib/projectApi";
-import { fetchWorkspaceFile } from "@/lib/workspace";
+import {
+  fetchProjectPreferences,
+  fetchWorkspaceFile,
+  saveProjectPreferences,
+  verifyWorkspacePreview,
+  type ProjectPreferences,
+} from "@/lib/workspace";
 import {
   detectUserLang,
   displayAgentReply,
@@ -411,6 +420,13 @@ export function IdeAgentPanel({
   const [budgetOpen, setBudgetOpen] = useState(false);
   // Cursor-like default: write files immediately (no Accept clicks).
   const [reviewBeforeApply, setReviewBeforeApply] = useState(false);
+  /** Full vertical app build: plan briefly then implement runnable files this turn */
+  const [fullBuild, setFullBuild] = useState(false);
+  const [prefs, setPrefs] = useState<ProjectPreferences>({});
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [learnPulse, setLearnPulse] = useState<LearningPulse | null>(null);
+  const [learnFlash, setLearnFlash] = useState("");
+  const boostStarted = useRef(false);
   const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const [pickCompare, setPickCompare] = useState<string | null>(null);
   const [templates, setTemplates] = useState<CommandTemplate[]>([]);
@@ -1106,6 +1122,37 @@ export function IdeAgentPanel({
     };
   }, [modeMenu, chiefMenu]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const hit = await fetchProjectPreferences(projectId);
+      if (!cancelled && hit.ok) {
+        setPrefs(hit.preferences || {});
+        if (hit.preferences?.always_preview) setFullBuild((v) => v);
+      }
+      const pulse = await fetchLearningPulse();
+      if (!cancelled && pulse) setLearnPulse(pulse);
+      if (!boostStarted.current) {
+        boostStarted.current = true;
+        void boostCoreSpecialties().then((ok) => {
+          if (ok && !cancelled) {
+            setLearnFlash("تعزيز التخصصات الداخلية…");
+            window.setTimeout(() => setLearnFlash(""), 4000);
+          }
+        });
+      }
+    })();
+    const timer = window.setInterval(() => {
+      void fetchLearningPulse().then((p) => {
+        if (!cancelled && p) setLearnPulse(p);
+      });
+    }, 45000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [projectId]);
+
   // Boot tabs for project
   useEffect(() => {
     bootRef.current = false;
@@ -1429,7 +1476,7 @@ export function IdeAgentPanel({
       onLog?.(`applied ${take.length} edit(s)`);
       void recordCodingHumanAcceptance(true, `accepted ${take.length} file(s)`, "ide-review");
       const webPaths = take.map((e) => e.path).filter(isWebPreviewPath);
-      if (webPaths.length) onAfterWebEdits?.(webPaths);
+      if (webPaths.length || prefs.always_preview || fullBuild) onAfterWebEdits?.(webPaths);
       const priorUser =
         [...rows.slice(0, msgIndex)].reverse().find((m) => m.role === "user")?.text || "";
       void rapidLearnFromIdeApply({
@@ -1438,7 +1485,19 @@ export function IdeAgentPanel({
         assistantText: msg.text || "",
         files: take.map((e) => e.path),
         intent: "implement",
+      }).then(() => {
+        setLearnFlash("تعلّم من Accept");
+        window.setTimeout(() => setLearnFlash(""), 2500);
+        void fetchLearningPulse().then((p) => p && setLearnPulse(p));
       });
+      if (prefs.always_preview || fullBuild || webPaths.length) {
+        window.setTimeout(() => {
+          void verifyWorkspacePreview(projectId).then((v) => {
+            setLearnFlash(v.ok ? "تحقق البناء ✓" : "تحقق البناء يحتاج مراجعة");
+            window.setTimeout(() => setLearnFlash(""), 3000);
+          });
+        }, 1200);
+      }
     } catch {
       setError("فشل تطبيق التعديلات على الملفات.");
       void recordCodingHumanAcceptance(false, "apply failed", "ide-review");
@@ -1589,11 +1648,24 @@ export function IdeAgentPanel({
             `Partial before stop:\n${cp.partialReply || "(none)"}`,
           ].join("\n")
         : "";
+    const prefsHint = [
+      prefs.language ? `Preferred language: ${prefs.language}` : "",
+      prefs.stack ? `Preferred stack: ${prefs.stack}` : "",
+      prefs.no_scaffold ? "Never dump canned scaffolds." : "",
+      prefs.always_preview ? "Always remind/start Live Preview after UI edits." : "",
+      prefs.notes ? `User notes: ${prefs.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
     const context = [
       SCAFFOLD_RULES,
       MODE_HINT[sendMode],
       chiefHint,
       resumeHint,
+      prefsHint ? `PROJECT PREFERENCES:\n${prefsHint}` : "",
+      fullBuild
+        ? "FULL APP BUILD MODE: short understand+plan, then THIS TURN emit complete runnable ```path fences (entry+styles+logic). User authorized implement now."
+        : "",
       sendMode === "ask" ? "Do not emit file blocks unless the user explicitly asks." : "",
       sendMode === "edit" && (sendAttachments[0] || sendFocus)
         ? `Focus edits on: ${(sendAttachments[0] || sendFocus)!}`
@@ -1605,7 +1677,7 @@ export function IdeAgentPanel({
       livePreviewUrl
         ? `Live Preview is running at ${livePreviewUrl} — after UI edits tell the user to refresh معاينة.`
         : "Live Preview: user can open معاينة in the IDE top bar to test the site while building.",
-      wantsProject && sendMode === "agent"
+      wantsProject && sendMode === "agent" && !fullBuild
         ? "User wants a new project — first understand + short plan; emit file fences only if they asked to write/implement now (or said اكتب/schreib/build files)."
         : "Prefer improving the existing workspace; change only what is needed. No repeated templates.",
       "",
@@ -1780,8 +1852,12 @@ export function IdeAgentPanel({
           userText: message,
           assistantText: reply,
         });
+      } else {
+        setLearnFlash("تعلّم من هذه الجولة");
+        window.setTimeout(() => setLearnFlash(""), 2500);
+        void fetchLearningPulse().then((p) => p && setLearnPulse(p));
       }
-      const wantsWrites = userWantsFileWrites(message);
+      const wantsWrites = userWantsFileWrites(message) || fullBuild;
       let edits = teacherFailed
         ? []
         : sendMode === "ask" && !wantsWrites
@@ -1871,14 +1947,26 @@ export function IdeAgentPanel({
             status: null,
           });
           const webPaths = appliedEdits.map((e) => e.path).filter(isWebPreviewPath);
-          if (webPaths.length) onAfterWebEdits?.(webPaths);
+          if (webPaths.length || prefs.always_preview || fullBuild) onAfterWebEdits?.(webPaths);
           void rapidLearnFromIdeApply({
             projectId,
             userText: message,
             assistantText: finalDisplay,
             files: appliedEdits.map((e) => e.path),
             intent: "implement",
+          }).then(() => {
+            setLearnFlash("تعلّم من Accept");
+            window.setTimeout(() => setLearnFlash(""), 2500);
+            void fetchLearningPulse().then((p) => p && setLearnPulse(p));
           });
+          if (prefs.always_preview || fullBuild || webPaths.length) {
+            window.setTimeout(() => {
+              void verifyWorkspacePreview(projectId).then((v) => {
+                setLearnFlash(v.ok ? "تحقق البناء ✓" : "تحقق البناء يحتاج مراجعة");
+                window.setTimeout(() => setLearnFlash(""), 3000);
+              });
+            }, 1200);
+          }
         } else {
           // All identical to disk — talk only, no fake "Wrote 5"
           onLog?.(`${tabTitle} · ${route.text} · no file changes`);
@@ -1955,8 +2043,30 @@ export function IdeAgentPanel({
         <div className="ide-agent__brand">
           <strong>Agents</strong>
           <span>Spixa</span>
+          {learnPulse?.learn_from_everything ? (
+            <em className="ide-agent__learn-pulse" title={learnPulse.doctrine_ar || "يتعلّم من كل عملية"}>
+              {learnFlash ||
+                `تعلّم نشط · ${learnPulse.experience?.total ?? "—"}`}
+            </em>
+          ) : null}
         </div>
         <div className="ide-agent__head-actions" role="toolbar" aria-label="أدوات الوكيل">
+          <button
+            type="button"
+            className={`ide-agent__tab-action ${fullBuild ? "is-on" : ""}`}
+            title="بناء تطبيق كامل — خطة قصيرة ثم تنفيذ runnable"
+            onClick={() => setFullBuild((v) => !v)}
+          >
+            بناء
+          </button>
+          <button
+            type="button"
+            className={`ide-agent__tab-action ${prefsOpen ? "is-on" : ""}`}
+            title="تفضيلات المشروع"
+            onClick={() => setPrefsOpen((v) => !v)}
+          >
+            تفضيل
+          </button>
           <button
             type="button"
             className={`ide-agent__tab-action ${pickCompare ? "is-on" : ""}`}
@@ -2175,6 +2285,75 @@ export function IdeAgentPanel({
           اختر تبويبين للمقارنة
           <button type="button" onClick={() => setPickCompare(null)}>
             إلغاء
+          </button>
+        </div>
+      ) : null}
+
+      {prefsOpen ? (
+        <div className="ide-agent__prefs">
+          <header>
+            <strong>تفضيلات المشروع</strong>
+            <button type="button" onClick={() => setPrefsOpen(false)}>
+              إغلاق
+            </button>
+          </header>
+          <label>
+            اللغة
+            <input
+              value={prefs.language || ""}
+              onChange={(e) => setPrefs((p) => ({ ...p, language: e.target.value }))}
+              placeholder="ar / de / en"
+            />
+          </label>
+          <label>
+            Stack
+            <input
+              value={prefs.stack || ""}
+              onChange={(e) => setPrefs((p) => ({ ...p, stack: e.target.value }))}
+              placeholder="HTML / Vite / Next…"
+              dir="ltr"
+            />
+          </label>
+          <label className="ide-agent__prefs-check">
+            <input
+              type="checkbox"
+              checked={Boolean(prefs.no_scaffold)}
+              onChange={(e) => setPrefs((p) => ({ ...p, no_scaffold: e.target.checked }))}
+            />
+            بدون قوالب جاهزة مكررة
+          </label>
+          <label className="ide-agent__prefs-check">
+            <input
+              type="checkbox"
+              checked={Boolean(prefs.always_preview)}
+              onChange={(e) => setPrefs((p) => ({ ...p, always_preview: e.target.checked }))}
+            />
+            معاينة دائماً بعد التعديل
+          </label>
+          <label>
+            ملاحظات
+            <textarea
+              value={prefs.notes || ""}
+              onChange={(e) => setPrefs((p) => ({ ...p, notes: e.target.value }))}
+              rows={2}
+              placeholder="أسلوبك، ألوان، قواعد…"
+            />
+          </label>
+          <button
+            type="button"
+            className="ide-agent__prefs-save"
+            onClick={() => {
+              void saveProjectPreferences(projectId, prefs).then((r) => {
+                if (!r.ok) setError(r.error || "تعذّر حفظ التفضيلات");
+                else {
+                  setLearnFlash("حُفظت التفضيلات");
+                  window.setTimeout(() => setLearnFlash(""), 2000);
+                  setPrefsOpen(false);
+                }
+              });
+            }}
+          >
+            حفظ التفضيلات
           </button>
         </div>
       ) : null}

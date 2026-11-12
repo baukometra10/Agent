@@ -684,6 +684,41 @@ class PromoteBody(BaseModel):
     grow_first: bool = True
 
 
+@router.post("/promote/boost-core")
+async def promote_boost_core():
+    """Background boost for coding / critic / project_intelligence (enough data → promote)."""
+    import threading
+
+    specialties = ["coding", "critic", "project_intelligence"]
+
+    def _run() -> None:
+        import asyncio
+
+        from app.training.promote import promote_specialties
+
+        try:
+            asyncio.run(
+                promote_specialties(
+                    specialties=specialties,
+                    grow_first=True,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            get_ownership_handoff().sync_auto_retire()
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_run, name="spixa-promote-boost", daemon=True).start()
+    return {
+        "ok": True,
+        "started": True,
+        "specialties": specialties,
+        "note": "Promotion running in background — check /system/ownership/handoff soon.",
+    }
+
+
 @router.post("/promote/all")
 async def promote_all(body: PromoteBody | None = None):
     """Grow datasets (optional) + train/eval each specialty on the fast eval model."""

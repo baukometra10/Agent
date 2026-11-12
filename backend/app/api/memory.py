@@ -80,6 +80,127 @@ async def remember(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+class PreferencesBody(BaseModel):
+    language: str | None = Field(default=None, max_length=16)
+    stack: str | None = Field(default=None, max_length=120)
+    no_scaffold: bool | None = None
+    always_preview: bool | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+def _prefs_text(prefs: dict[str, Any]) -> str:
+    parts = ["Project preferences (always obey for THIS project):"]
+    if prefs.get("language"):
+        parts.append(f"- UI/chat language preference: {prefs['language']}")
+    if prefs.get("stack"):
+        parts.append(f"- Preferred stack: {prefs['stack']}")
+    if prefs.get("no_scaffold"):
+        parts.append("- Never dump canned scaffolds; build from the real ask only.")
+    if prefs.get("always_preview"):
+        parts.append("- After UI edits, start/remind Live Preview for testing while building.")
+    if prefs.get("notes"):
+        parts.append(f"- Notes: {prefs['notes']}")
+    return "\n".join(parts)
+
+
+@router.get("/preferences")
+async def get_preferences(project_id: UUID, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+
+    from app.db.models import KnowledgeNode, Project
+
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="project_not_found")
+    result = await db.execute(
+        select(KnowledgeNode)
+        .where(
+            KnowledgeNode.project_id == project_id,
+            KnowledgeNode.category == "project_preferences",
+        )
+        .order_by(KnowledgeNode.created_at.desc())
+        .limit(1)
+    )
+    node = result.scalar_one_or_none()
+    evidence = (node.evidence if node and isinstance(node.evidence, dict) else {}) or {}
+    return {
+        "ok": True,
+        "preferences": evidence.get("preferences") or {},
+        "standing_text": node.content if node else "",
+        "node_id": str(node.id) if node else None,
+    }
+
+
+@router.put("/preferences")
+async def put_preferences(
+    project_id: UUID,
+    body: PreferencesBody,
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+
+    from app.db.models import KnowledgeKind, KnowledgeNode, Project
+
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="project_not_found")
+
+    prefs = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Merge with existing
+    existing = await db.execute(
+        select(KnowledgeNode)
+        .where(
+            KnowledgeNode.project_id == project_id,
+            KnowledgeNode.category == "project_preferences",
+        )
+        .order_by(KnowledgeNode.created_at.desc())
+        .limit(1)
+    )
+    node = existing.scalar_one_or_none()
+    prev = {}
+    if node and isinstance(node.evidence, dict):
+        prev = dict(node.evidence.get("preferences") or {})
+    merged = {**prev, **prefs}
+    text = _prefs_text(merged)
+
+    if node:
+        node.content = text
+        node.title = "Project preferences"
+        node.evidence = {"preferences": merged, "standing": True}
+        node.confidence = 0.99
+    else:
+        node = KnowledgeNode(
+            project_id=project_id,
+            memory_layer="decision",
+            category="project_preferences",
+            kind=KnowledgeKind.fact,
+            title="Project preferences",
+            content=text,
+            confidence=0.99,
+            source_type="user",
+            source_path="ide_preferences",
+            evidence={"preferences": merged, "standing": True},
+        )
+        db.add(node)
+
+    # Also mirror as standing_instruction so master recall picks it up
+    stand = KnowledgeNode(
+        project_id=project_id,
+        memory_layer="decision",
+        category="standing_instruction",
+        kind=KnowledgeKind.fact,
+        title="Standing preference (IDE)",
+        content=text[:2000],
+        confidence=0.99,
+        source_type="user",
+        source_path="ide_preferences",
+        evidence={"standing": True, "preferences": merged},
+    )
+    db.add(stand)
+    await db.commit()
+    return {"ok": True, "preferences": merged, "standing_text": text}
+
+
 @router.get("/embeddings")
 async def embeddings_stats(project_id: UUID, db: AsyncSession = Depends(get_db)):
     try:

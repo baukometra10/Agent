@@ -21,7 +21,7 @@ from app.workspace.files import (
     resolve_workspace_file,
     write_text_file,
 )
-from app.workspace.preview import preview_status, start_preview, stop_preview
+from app.workspace.preview import preview_status, start_preview, stop_preview, verify_preview
 from app.workspace.terminal import run_workspace_command
 
 router = APIRouter(prefix="/projects", tags=["workspace"])
@@ -226,3 +226,27 @@ async def workspace_preview_stop(
 ):
     await _project(project_id, session)
     return stop_preview(project_id)
+
+
+@router.post("/{project_id}/workspace/preview/verify")
+async def workspace_preview_verify(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    """Post-build check: HTTP probe the live preview and learn from the outcome."""
+    await _project(project_id, session)
+    result = verify_preview(project_id)
+    try:
+        from app.learning.operation_outcome import learn_from_operation
+
+        learn_from_operation(
+            kind="build_ok" if result.get("ok") else "build_fail",
+            title="Preview verify",
+            detail=str(result.get("url") or result.get("error") or "verify"),
+            project_id=str(project_id),
+            intent="implement",
+            human_verified=bool(result.get("ok")),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return result

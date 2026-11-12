@@ -70,6 +70,37 @@ export type OperationKind =
   | "build_ok"
   | "build_fail";
 
+export type LearningPulse = {
+  learn_from_everything?: boolean;
+  fast_handoff_enabled?: boolean;
+  ops_by_specialty?: Record<string, number>;
+  doctrine_ar?: string;
+  experience?: { total?: number; counts?: Record<string, number> };
+};
+
+export async function fetchLearningPulse(): Promise<LearningPulse | null> {
+  try {
+    const res = await fetch(`${API_URL}/system/ownership/handoff/learning-pulse`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as LearningPulse;
+  } catch {
+    return null;
+  }
+}
+
+export async function boostCoreSpecialties(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/system/ownership/promote/boost-core`, {
+      method: "POST",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Fire-and-forget: every agent operation trains Spixa ASAP. */
 export async function learnFromOperation(input: {
   kind: OperationKind;

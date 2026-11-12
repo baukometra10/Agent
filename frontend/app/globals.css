@@ -6571,6 +6571,7 @@ body.ide-resizing .ide-sash::after {
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
+  min-width: 0;
 }
 
 .ide-agent__brand strong {
@@ -6583,6 +6584,72 @@ body.ide-resizing .ide-sash::after {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7d8ba3;
+}
+
+.ide-agent__learn-pulse {
+  margin-top: 0.15rem;
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #b8f0c8;
+  background: rgba(80, 200, 120, 0.12);
+  border: 1px solid rgba(120, 220, 160, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ide-agent__prefs {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: #0e1520;
+  font-size: 0.75rem;
+}
+
+.ide-agent__prefs header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ide-agent__prefs label {
+  display: grid;
+  gap: 0.2rem;
+  color: #b7c4d8;
+}
+
+.ide-agent__prefs input,
+.ide-agent__prefs textarea {
+  background: #121a28;
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+}
+
+.ide-agent__prefs-check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ide-agent__prefs-save {
+  justify-self: start;
+  appearance: none;
+  border: 1px solid rgba(91, 141, 239, 0.45);
+  background: rgba(91, 141, 239, 0.15);
+  color: #c9daf7;
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
 }
 
 .ide-agent__meta {
