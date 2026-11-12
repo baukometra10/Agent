@@ -495,11 +495,14 @@ class ModelGateway:
             return self._simulate(role, model_id, prompt, system, meta, reason="force_simulate")
 
         force_provider = str(meta.get("force_provider") or "").lower()
+        active = self.active_teacher_upstream()
+        prefer_cursor = active == "cursor" or force_provider == "cursor"
         use_cursor = (
-            force_provider == "cursor"
-            or self._use_cursor_upstream()
+            prefer_cursor or (force_provider in {"", "auto"} and self._use_cursor_upstream())
         ) and role in {ModelRole.coding, ModelRole.reasoning, ModelRole.fast}
         cursor_key = (self.settings.cursor_api_key or "").strip()
+        teacher_errors: list[str] = []
+
         if use_cursor and cursor_key:
             try:
                 content, tin, tout, raw = await cursor_cloud_agent_chat(
@@ -527,8 +530,9 @@ class ModelGateway:
                     },
                 )
             except ProviderError as exc:
-                # Fall through to OpenRouter if configured
-                if not self._openrouter_ready():
+                teacher_errors.append(f"cursor:{exc}")
+                # If Cursor is the chosen upstream, do not hide failures behind a dead OpenRouter
+                if prefer_cursor and force_provider == "cursor":
                     return ModelResponse(
                         role=role,
                         model_id="cursor/cloud-agent",
@@ -539,7 +543,8 @@ class ModelGateway:
                         raw={"provider": "cursor", "status": exc.status, "metadata": meta},
                     )
             except Exception as exc:  # noqa: BLE001
-                if not self._openrouter_ready():
+                teacher_errors.append(f"cursor:{exc}")
+                if prefer_cursor and force_provider == "cursor":
                     return ModelResponse(
                         role=role,
                         model_id="cursor/cloud-agent",
@@ -550,11 +555,18 @@ class ModelGateway:
                         raw={"provider": "cursor", "metadata": meta},
                     )
 
-        use_or = self._use_openrouter_upstream() or force_provider == "openrouter"
+        use_or = (
+            force_provider == "openrouter"
+            or active == "openrouter"
+            or (prefer_cursor and self._openrouter_ready())  # soft fallback after Cursor miss
+            or (active in {"auto", "none"} and self._openrouter_ready())
+        )
+        # Skip OpenRouter when we already know the only likely failure is empty credits
+        # and another vendor key exists — still try OR unless previous OR 402 is sticky.
         or_key = (self.settings.openrouter_api_key or "").strip()
 
-        # Preferred path: single upstream for all external teachers
-        if use_or and or_key and role != ModelRole.embedding:
+        # Preferred path: OpenRouter when live with credits
+        if use_or and or_key and role != ModelRole.embedding and force_provider != "cursor":
             try:
                 content, tin, tout, raw = await openrouter_chat(
                     api_key=or_key,
@@ -578,28 +590,39 @@ class ModelGateway:
                         "upstream": "openrouter",
                         "metadata": meta,
                         "response": _safe_upstream(raw),
+                        "prior_errors": teacher_errors or None,
                     },
                 )
             except ProviderError as exc:
-                return ModelResponse(
-                    role=role,
-                    model_id=or_model,
-                    content=f"[provider-error:openrouter] {exc}",
-                    simulated=False,
-                    error=str(exc),
-                    route_tier=RouteTier.teacher.value,
-                    raw={"provider": "openrouter", "status": exc.status, "metadata": meta},
-                )
+                teacher_errors.append(f"openrouter:{exc}")
+                # Fall through to direct vendor keys when OR has no credits / is down
+                if force_provider == "openrouter":
+                    return ModelResponse(
+                        role=role,
+                        model_id=or_model,
+                        content=f"[provider-error:openrouter] {exc}",
+                        simulated=False,
+                        error=str(exc),
+                        route_tier=RouteTier.teacher.value,
+                        raw={
+                            "provider": "openrouter",
+                            "status": exc.status,
+                            "metadata": meta,
+                            "prior_errors": teacher_errors,
+                        },
+                    )
             except Exception as exc:  # noqa: BLE001
-                return ModelResponse(
-                    role=role,
-                    model_id=or_model,
-                    content=f"[provider-error:openrouter] {exc}",
-                    simulated=False,
-                    error=str(exc),
-                    route_tier=RouteTier.teacher.value,
-                    raw={"provider": "openrouter", "metadata": meta},
-                )
+                teacher_errors.append(f"openrouter:{exc}")
+                if force_provider == "openrouter":
+                    return ModelResponse(
+                        role=role,
+                        model_id=or_model,
+                        content=f"[provider-error:openrouter] {exc}",
+                        simulated=False,
+                        error=str(exc),
+                        route_tier=RouteTier.teacher.value,
+                        raw={"provider": "openrouter", "metadata": meta, "prior_errors": teacher_errors},
+                    )
 
         # Fallback: direct vendor keys (legacy / embeddings)
         api_key = ""
@@ -609,6 +632,17 @@ class ModelGateway:
             api_key = (self.settings.anthropic_api_key or "").strip()
 
         if not api_key:
+            if teacher_errors:
+                joined = " | ".join(teacher_errors)[:800]
+                return ModelResponse(
+                    role=role,
+                    model_id=model_id,
+                    content=f"[provider-error:teachers] {joined}",
+                    simulated=False,
+                    error=joined,
+                    route_tier=RouteTier.teacher.value,
+                    raw={"provider": "teachers", "metadata": meta, "prior_errors": teacher_errors},
+                )
             return self._simulate(
                 role,
                 model_id,

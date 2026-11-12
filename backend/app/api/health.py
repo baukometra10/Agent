@@ -47,7 +47,11 @@ async def model_routes():
 
 
 @router.post("/system/models/probe")
-async def model_probe(role: str = "fast", force_teacher: bool = False):
+async def model_probe(
+    role: str = "fast",
+    force_teacher: bool = False,
+    force_provider: str | None = None,
+):
     """Tiny completion to verify Local-First / teacher escalate wiring."""
     from app.gateway.router import ModelRole
 
@@ -55,11 +59,16 @@ async def model_probe(role: str = "fast", force_teacher: bool = False):
         model_role = ModelRole(role)
     except ValueError:
         model_role = ModelRole.fast
+    meta: dict = {"probe": True, "force_teacher": force_teacher, "skip_cache": True}
+    pref = (force_provider or "").strip().lower()
+    if pref in {"cursor", "openrouter", "openai", "anthropic"}:
+        meta["force_teacher"] = True
+        meta["force_provider"] = pref
     response = await get_model_gateway().complete(
         model_role,
         "Reply with exactly: ok",
         system="You are a health probe for Evolve Model Gateway. Be terse.",
-        metadata={"probe": True, "force_teacher": force_teacher, "skip_cache": True},
+        metadata=meta,
     )
     return {
         "role": response.role.value,

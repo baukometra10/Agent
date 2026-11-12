@@ -201,8 +201,23 @@ async def cursor_cloud_agent_chat(
     }
     if model_id:
         body["model"] = {"id": model_id}
-    if repo_url:
-        body["repos"] = [{"url": repo_url}]
+    # Reject placeholder / org-root URLs that break Cloud Agents create
+    cleaned_repo = (repo_url or "").strip().rstrip("/")
+    if cleaned_repo and cleaned_repo.lower() not in {
+        "https://github.com",
+        "http://github.com",
+        "https://gitlab.com",
+        "http://gitlab.com",
+    }:
+        # Require at least org/repo path segments
+        try:
+            from urllib.parse import urlparse
+
+            path = (urlparse(cleaned_repo).path or "").strip("/")
+            if path.count("/") >= 1:
+                body["repos"] = [{"url": cleaned_repo}]
+        except Exception:  # noqa: BLE001
+            pass
 
     root = base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=60.0) as client:

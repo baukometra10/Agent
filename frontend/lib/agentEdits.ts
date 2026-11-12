@@ -267,10 +267,48 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
   // Collapse pathological repetition (same short line repeated).
   text = collapseRepeats(text);
 
+  // Never replace a real provider failure with a canned “Klar / حسناً” plan.
+  const providerErr = extractProviderError(reply);
+  if (providerErr) {
+    return providerErrorUserMessage(providerErr, userMessage);
+  }
+
   if (!text || looksLikeBrokenFileDump(reply) || looksLikeBrokenModelReply(text, reply)) {
     text = colleaguePlanReply(userMessage, edits);
   }
   return text;
+}
+
+function extractProviderError(raw: string): string | null {
+  const m = (raw || "").match(/\[provider-error:([^\]]+)\]\s*([\s\S]*)/i);
+  if (!m) return null;
+  return `${m[1]}: ${m[2]}`.trim();
+}
+
+function providerErrorUserMessage(detail: string, userMessage: string): string {
+  const lang = detectUserLang(userMessage);
+  const low = detail.toLowerCase();
+  if (/insufficient credits|402/.test(low)) {
+    if (lang === "de") {
+      return "Der externe Lehrer (OpenRouter) hat kein Guthaben. Cursor/anderen Key prüfen oder Credits aufladen — keine vorgefertigte Antwort.";
+    }
+    if (lang === "ar") {
+      return "المعلّم الخارجي (OpenRouter) بلا رصيد. تحقق من مفتاح Cursor أو اشحن الرصيد — هذا ليس رداً جاهزاً من النظام.";
+    }
+    return "External teacher has no credits (OpenRouter 402). Check Cursor key or add credits — this is not a canned plan.";
+  }
+  if (/cursor/.test(low)) {
+    if (lang === "de") {
+      return `Cursor-Lehrer fehlgeschlagen: ${detail.slice(0, 280)}`;
+    }
+    if (lang === "ar") {
+      return `فشل معلّم Cursor: ${detail.slice(0, 280)}`;
+    }
+    return `Cursor teacher failed: ${detail.slice(0, 280)}`;
+  }
+  if (lang === "de") return `Lehrer-Fehler: ${detail.slice(0, 280)}`;
+  if (lang === "ar") return `خطأ المعلّم: ${detail.slice(0, 280)}`;
+  return `Teacher error: ${detail.slice(0, 280)}`;
 }
 
 export function looksLikeBrokenModelReply(clean: string, raw: string): boolean {
