@@ -284,6 +284,8 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
 
   // Collapse pathological repetition (same short line repeated).
   text = collapseRepeats(text);
+  // Keep only the first numbered plan when the model dumps two lists.
+  text = collapseDuplicateNumberedPlans(text);
 
   // Never replace a real provider failure with a canned “Klar / حسناً” plan.
   const providerErr = extractProviderError(reply);
@@ -349,22 +351,20 @@ export function colleaguePlanReply(userMessage: string, edits: FileEdit[] = []):
   if (lang === "de") {
     if (planAsk && !continueAsk) {
       return [
-        "Klar — hier ist der Plan:",
-        "1) Ist-Zustand der offenen Dateien prüfen",
-        "2) Kleine, sichere Verbesserungen umsetzen",
-        "3) Kurz testen und README anpassen",
-        n ? `Ich setze das jetzt um (${n} Datei(en)).` : "Sag Bescheid, dann starte ich die Umsetzung.",
+        "Verstanden — so gehen wir vor:",
+        "1) Offene Dateien kurz prüfen",
+        "2) Die wichtigste Änderung umsetzen",
+        "3) Kurz prüfen",
+        n ? `Ich setze das jetzt um (${n} Datei(en)).` : "Welche der drei Schritte zuerst?",
       ].join("\n");
     }
     return [
-      "Klar — wir machen weiter mit der Entwicklung.",
-      "Plan:",
-      "1) Aktuelle App-Dateien schärfen (UI/Logik)",
-      "2) Fehlende Stücke ergänzen",
-      "3) Kurz dokumentieren",
+      "Verstanden — wir machen weiter.",
+      "1) Nächsten konkreten Schritt umsetzen",
+      "2) Kurz prüfen",
       n
-        ? `Ich starte jetzt und schreibe ${n} Datei(en).`
-        : "Ich starte jetzt mit dem wichtigsten Teil.",
+        ? `Ich schreibe jetzt ${n} Datei(en).`
+        : "Sag mir den nächsten Schritt in einem Satz.",
     ].join("\n");
   }
   if (lang === "ar") {
@@ -424,6 +424,34 @@ function collapseRepeats(text: string): string {
     out.push(line);
   }
   return out.join("\n").trim();
+}
+
+/** Drop a second 1)…N) block so the bubble shows one clear plan. */
+function collapseDuplicateNumberedPlans(text: string): string {
+  const lines = text.split(/\r?\n/);
+  let firstPlanEnded = false;
+  let sawFirst1 = false;
+  const out: string[] = [];
+  for (const line of lines) {
+    const numbered = /^\s*\d+[.)]\s+\S/.test(line);
+    if (numbered && /^\s*1[.)]\s/.test(line)) {
+      if (sawFirst1) {
+        firstPlanEnded = true;
+        continue;
+      }
+      sawFirst1 = true;
+    }
+    if (firstPlanEnded && numbered) continue;
+    if (firstPlanEnded && /^\s*(plan|optionen|wir machen|we'll|سننفذ)\b/i.test(line.trim())) {
+      continue;
+    }
+    if (firstPlanEnded && !line.trim()) {
+      // keep a single blank once after trimming the duplicate
+      if (out.length && out[out.length - 1].trim() === "") continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export function detectUserLang(message: string): "ar" | "de" | "en" {
