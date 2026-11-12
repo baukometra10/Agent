@@ -10,6 +10,7 @@ import { OpenLocalFolderCard } from "@/components/projects/OpenLocalFolderCard";
 import { useAgentLive } from "@/hooks/useAgentLive";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SectionLinks } from "@/components/ui/SectionLinks";
 
 type Props = { projects: Project[] };
 
@@ -52,10 +53,11 @@ export function ProjectPickerLive({ projects: initial }: Props) {
   return (
     <div>
       <PageHeader
-        eyebrow="مساحة العمل"
+        eyebrow="العمل"
         title="المشاريع والملفات"
         subtitle="اربط مجلدًا حقيقيًا على جهازك، أو أنشئ مشروعًا جديدًا على سطح المكتب — الكود يبقى عندك دائمًا."
       />
+      <SectionLinks sectionId="projects" />
 
       <OpenLocalFolderCard />
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { initials } from "@/lib/user";
+import { planLabel, roleLabel } from "@/lib/uiLabels";
 import { isAdmin, useUser } from "@/hooks/useUser";
 
 export function UserMenu() {
@@ -32,7 +33,7 @@ export function UserMenu() {
         <div className="user-chip__text">
           <strong>{user.name}</strong>
           <span>
-            {user.plan} · {user.tokensRemaining} توكن
+            {planLabel(user.plan)} · {user.tokensRemaining} توكن
           </span>
         </div>
         {user.avatarUrl ? (
@@ -59,7 +60,7 @@ export function UserMenu() {
             <div>
               <strong>{user.name}</strong>
               <span>{user.email || "—"}</span>
-              <em>{user.role}</em>
+              <em>{roleLabel(user.role)}</em>
             </div>
           </div>
           <ul className="top-popover__list">

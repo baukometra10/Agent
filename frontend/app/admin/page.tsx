@@ -7,27 +7,28 @@ import { API_URL } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { isAdmin, useUser } from "@/hooks/useUser";
+import { accountStatusLabel, formatIsoWhen, planLabel } from "@/lib/uiLabels";
 
 const links = [
   {
     href: "/settings",
     title: "ملكية النماذج والتدريب",
-    text: "تقييم، LoRA، تقاعد المعلّمين، رفع التغطية — للمسؤول فقط.",
+    text: "تقييم، ضبط دقيق، تقاعد المعلّمين، رفع التغطية — للمسؤول فقط.",
   },
   {
     href: "/settings#rapid-learning",
     title: "منظومة التعلم السريع",
-    text: "7 طبقات · Multi-Agent Lab · تعلّم من نتائج التنفيذ.",
+    text: "سبع طبقات · مختبر متعدد الوكلاء · تعلّم من نتائج التنفيذ.",
   },
   {
     href: "/settings#model-factory",
     title: "مصنع تطوير النماذج",
-    text: "5 محركات · تقييم مستقل · موافقة بشرية قبل الإنتاج.",
+    text: "خمسة محركات · تقييم مستقل · موافقة بشرية قبل الإنتاج.",
   },
   {
     href: "/settings#spixa-ecosystem",
     title: "منظومة ذكاء Spixa",
-    text: "6 تخصصات مملوكة · Orchestrator · خارطة I1–I6.",
+    text: "ستة تخصصات مملوكة · منسّق · خارطة المراحل.",
   },
   {
     href: "/settings#intelligence-ops",
@@ -139,11 +140,11 @@ export default function AdminPage() {
       <PageHeader
         eyebrow="صلاحيات عليا"
         title="وحدة التحكم العليا"
-        subtitle="Internal Intelligence First · المستخدمون · التنبيهات · اقتصاد النماذج."
+        subtitle="الذكاء الداخلي أولًا · المستخدمون · التنبيهات · اقتصاد النماذج."
       />
 
       {ace ? (
-        <GlassCard title="AI Cost Efficiency">
+        <GlassCard title="كفاءة تكلفة الذكاء">
           <p style={{ marginTop: 0, color: "var(--muted)" }}>
             {(ace.doctrine_ar as string) || "الذكاء الداخلي أولًا"}
           </p>
@@ -170,7 +171,7 @@ export default function AdminPage() {
             </div>
           </div>
           <Link href="/settings" className="btn btn-ghost" style={{ marginTop: 8 }}>
-            ملكية النماذج و Distillation
+            ملكية النماذج والتقطير
           </Link>
         </GlassCard>
       ) : null}
@@ -178,7 +179,7 @@ export default function AdminPage() {
       <section className="admin-ops">
         <GlassCard title={`تنبيهات فورية (${openAlerts.length} مفتوحة)`}>
           <p className="settings-hint">
-            أي إساءة أو خلل يُسجَّل هنا ويُدفع فوراً إلى Webhook إن وُجد (NOTIFICATION_WEBHOOK_URL).
+            أي إساءة أو خلل يُسجَّل هنا ويُرسل فوراً إلى قناة التنبيه إن وُجدت.
           </p>
           <ul className="admin-alert-list">
             {!alerts.length && <li className="empty">لا تنبيهات بعد.</li>}
@@ -209,16 +210,19 @@ export default function AdminPage() {
               <article key={String(u.email)} className="admin-user">
                 <header>
                   <strong dir="ltr">{u.email}</strong>
-                  <span>{u.status || "active"}</span>
+                  <span>{accountStatusLabel(u.status)}</span>
                 </header>
-                <p dir="ltr">
-                  📞 {u.phone || "—"} · {u.plan} · توكن {u.tokens_remaining}
+                <p>
+                  هاتف: <span dir="ltr">{u.phone || "—"}</span>
+                  {" · "}
+                  {planLabel(u.plan)} · توكن {u.tokens_remaining}
                 </p>
                 <p>
-                  بريد {u.email_verified ? "✓" : "✗"} · هاتف {u.phone_verified ? "✓" : "✗"} ·{" "}
+                  بريد {u.email_verified ? "موثَّق" : "غير موثَّق"} · هاتف{" "}
+                  {u.phone_verified ? "موثَّق" : "غير موثَّق"} ·{" "}
                   {u.access === "admin" ? "مسؤول" : "عضو"}
                 </p>
-                <small dir="ltr">آخر دخول: {u.last_login || "—"}</small>
+                <small>آخر دخول: {formatIsoWhen(u.last_login) || "—"}</small>
                 {u.access !== "admin" ? (
                   <div className="admin-user__actions">
                     <button

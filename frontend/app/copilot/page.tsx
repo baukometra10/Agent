@@ -14,6 +14,7 @@ import {
 import { AutopilotToggle } from "@/components/shell/AutopilotToggle";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SectionLinks } from "@/components/ui/SectionLinks";
 import { useAutopilot } from "@/hooks/useAutopilot";
 
 export default function CopilotPage() {
@@ -83,6 +84,7 @@ export default function CopilotPage() {
         title="مساعد الطيار"
         subtitle="يعمل وحده على نسخ تجريبية، يبني فروقات واقتراحات، ولا يلمس الأصول قبل موافقتك."
       />
+      <SectionLinks sectionId="copilot" />
 
       <GlassCard title="التشغيل">
         <div style={{ marginBottom: 12 }}>
@@ -141,7 +143,7 @@ export default function CopilotPage() {
             disabled={busy || auto.busy}
             onClick={() => void onRun()}
           >
-            {busy ? "جارٍ الدورة…" : "دورة sandbox الآن"}
+            {busy ? "جارٍ الدورة…" : "تشغيل دورة تجريبية الآن"}
           </button>
           <button
             type="button"
@@ -168,8 +170,14 @@ export default function CopilotPage() {
             <p style={{ color: "#f0a0a0", marginTop: 0 }}>تنبيه أمني/مخاطرة عالية — راجع فوراً.</p>
           )}
           <p style={{ marginTop: latest.urgent ? undefined : 0 }}>{String(latest.summary || "")}</p>
-          <small style={{ display: "block", direction: "ltr", textAlign: "left" }}>
-            run={String(latest.run_id || "")} · {String(latest.generated_at || "")}
+          <small style={{ display: "block" }}>
+            {latest.generated_at
+              ? new Date(String(latest.generated_at)).toLocaleString("ar", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  hour12: false,
+                })
+              : ""}
           </small>
           {projects.map((p) => (
             <article key={String(p.project_id || p.project_name)} className="node" style={{ marginTop: 12 }}>

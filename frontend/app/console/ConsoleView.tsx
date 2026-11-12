@@ -97,7 +97,7 @@ export default function ConsolePage() {
         const data = await res.json();
         if (!cancelled && res.ok && data.ok && data.user) {
           await syncFromServer(data.user);
-          setMsg("تم الدفع عبر Stripe — فُتحت المميزات فوراً.");
+          setMsg("تم الدفع بنجاح — فُتحت المميزات فوراً.");
           await reload();
           setTab("overview");
         }
@@ -136,7 +136,7 @@ export default function ConsolePage() {
         await syncFromServer(data.user);
         setMsg(
           data.mode === "dev_simulate"
-            ? "وضع التطوير: فُتحت الخطة محلياً (أضف STRIPE_SECRET_KEY للدفع الحقيقي)."
+            ? "وضع التطوير: فُتحت الخطة محلياً (أضف مفتاح الدفع الحقيقي لاحقاً)."
             : "تم تأكيد الدفع — فُتحت مميزات الخطة فوراً.",
         );
         await reload();
@@ -333,7 +333,7 @@ export default function ConsolePage() {
                     ? "خطتك الحالية"
                     : ((catalog?.payments as { stripe_configured?: boolean } | undefined)
                         ?.stripe_configured
-                        ? "ادفع عبر Stripe"
+                        ? "ادفع الآن"
                         : "فعّل الخطة الآن")}
                 </button>
               </article>

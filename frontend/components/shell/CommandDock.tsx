@@ -1,50 +1,59 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { API_URL, fetchProjects } from "@/lib/api";
-import { spendTokens } from "@/lib/billing";
-import { hasFeature, hasTokens, loadUser } from "@/lib/user";
-
-type Msg = { role: "user" | "assistant"; text: string };
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { IdeAgentPanel } from "@/components/ide/IdeAgentPanel";
+import { fetchProjects } from "@/lib/api";
+import { applyAgentEdits } from "@/lib/applyAgentEdits";
+import type { Project } from "@/lib/types";
+import { fetchWorkspaceTree } from "@/lib/workspace";
 
 /**
- * Manual command surface — available on most pages.
- * Hidden on /ide (workspace already has Spixa Agent panel).
- * Ctrl/Cmd+J toggles elsewhere.
+ * Global Spixa agent — same IdeAgentPanel as the IDE.
+ * Hidden on /ide (panel already docked there). Ctrl/Cmd+J elsewhere.
  */
 export function CommandDock() {
   const pathname = usePathname() || "";
+  const router = useRouter();
   const hideOnIde = pathname === "/ide" || pathname.startsWith("/ide/");
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [projectName, setProjectName] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [error, setError] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState("");
+  const [treePaths, setTreePaths] = useState<string[]>([]);
+  const [status, setStatus] = useState("");
+
+  const project = projects.find((p) => p.id === projectId) || null;
+
+  const loadProjects = useCallback(async () => {
+    const rows = await fetchProjects();
+    setProjects(rows);
+    setProjectId((cur) => cur || rows[0]?.id || "");
+  }, []);
 
   useEffect(() => {
     if (hideOnIde) setOpen(false);
   }, [hideOnIde]);
 
-  const loadProject = useCallback(async () => {
-    const projects = await fetchProjects();
-    const first = projects[0];
-    if (first) {
-      setProjectId(first.id);
-      setProjectName(first.name);
-    } else {
-      setProjectId(null);
-      setProjectName("");
-    }
-  }, []);
+  useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
 
   useEffect(() => {
-    void loadProject();
-  }, [loadProject]);
+    if (!projectId) {
+      setTreePaths([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const tree = await fetchWorkspaceTree(projectId);
+      if (cancelled) return;
+      setTreePaths((tree.entries || []).filter((e) => e.type === "file").map((e) => e.path));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -61,74 +70,9 @@ export function CommandDock() {
   }, [hideOnIde]);
 
   useEffect(() => {
-    if (open) {
-      window.setTimeout(() => inputRef.current?.focus(), 40);
-    }
-  }, [open]);
-
-  async function ensureSession(pid: string): Promise<string | null> {
-    if (sessionId) return sessionId;
-    const res = await fetch(`${API_URL}/api/projects/${pid}/chat/sessions`, {
-      method: "POST",
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const id = String(data.id || data.session_id || "");
-    setSessionId(id || null);
-    return id || null;
-  }
-
-  async function onSend() {
-    const message = text.trim();
-    if (!message || busy) return;
-    if (!projectId) {
-      setError("أضف مشروعاً أولاً من إدارة المشاريع.");
-      return;
-    }
-    const profile = loadUser();
-    if (!hasFeature(profile, "chat")) {
-      setError("المحادثة غير مفعّلة في خطتك — رقِّ من /pricing.");
-      return;
-    }
-    if (!hasTokens(profile, 1)) {
-      setError("نفدت التوكنز — راجع /console أو رقِّ الخطة.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setMsgs((m) => [...m, { role: "user", text: message }]);
-    setText("");
-    try {
-      const sid = await ensureSession(projectId);
-      if (!sid) {
-        setError("تعذّر فتح جلسة أوامر.");
-        setBusy(false);
-        return;
-      }
-      const res = await fetch(
-        `${API_URL}/api/projects/${projectId}/chat/sessions/${sid}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
-        },
-      );
-      if (!res.ok) {
-        setError("فشل إرسال الأمر.");
-        setBusy(false);
-        return;
-      }
-      const data = await res.json();
-      setMsgs((m) => [
-        ...m,
-        { role: "assistant", text: String(data.reply || data.message || "تم.") },
-      ]);
-      await spendTokens(1, "command_dock");
-    } catch {
-      setError("تعذّر الاتصال بالوكيل.");
-    }
-    setBusy(false);
-  }
+    if (!open) return;
+    void loadProjects();
+  }, [open, loadProjects]);
 
   if (hideOnIde) return null;
 
@@ -138,72 +82,108 @@ export function CommandDock() {
         type="button"
         className={`cmd-fab ${open ? "is-open" : ""}`}
         onClick={() => setOpen((v) => !v)}
-        title="أوامر يدوية (Ctrl+J)"
-        aria-label="فتح لوحة الأوامر اليدوية"
+        title="وكيل Spixa (Ctrl+J) — نفس وكيل مساحة العمل"
+        aria-label="فتح وكيل Spixa"
       >
         <span className="cmd-fab__glyph">⌘</span>
-        <span className="cmd-fab__label">أمر</span>
+        <span className="cmd-fab__label">الوكيل</span>
       </button>
 
       {open && (
-        <div className="cmd-dock" role="dialog" aria-label="لوحة الأوامر اليدوية">
+        <div className="cmd-dock cmd-dock--agent" role="dialog" aria-label="وكيل Spixa">
           <header className="cmd-dock__head">
             <div>
-              <strong>أوامر يدوية</strong>
-              <span>
-                {projectName
-                  ? `المشروع النشط: ${projectName}`
-                  : "لا مشروع — افتح مشروعاً أولاً"}
-              </span>
+              <strong>وكيل Spixa</strong>
+              <span>نفس الوكيل داخل مساحة العمل — الجلسات مشتركة لكل مشروع</span>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
-              إغلاق
-            </button>
+            <div className="cmd-dock__head-actions">
+              {projectId ? (
+                <Link
+                  href={`/ide?project=${encodeURIComponent(projectId)}`}
+                  className="btn btn-ghost"
+                  onClick={() => setOpen(false)}
+                >
+                  في المحرر
+                </Link>
+              ) : null}
+              <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+                إغلاق
+              </button>
+            </div>
           </header>
 
-          <div className="cmd-dock__thread">
-            {msgs.length === 0 && (
-              <p className="cmd-dock__hint">
-                اكتب أمراً مباشراً: «أصلح الاختبارات»، «افهم المشروع»، «اقترح تحسينات أمنية».
-                الوكيل يقترح فقط — التنفيذ بعد موافقتك.
-              </p>
-            )}
-            {msgs.map((m, i) => (
-              <div key={i} className={`cmd-bubble cmd-bubble--${m.role}`}>
-                {m.text}
-              </div>
-            ))}
-            {error ? <p className="cmd-dock__error">{error}</p> : null}
+          <div className="cmd-dock__project">
+            <label htmlFor="cmd-dock-project">المشروع</label>
+            <select
+              id="cmd-dock-project"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              {!projects.length && <option value="">لا مشاريع — افتح مشروعاً أولاً</option>}
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {!projects.length ? (
+              <Link href="/projects" className="btn btn-primary" onClick={() => setOpen(false)}>
+                المشاريع
+              </Link>
+            ) : null}
           </div>
 
-          <div className="cmd-dock__composer">
-            <textarea
-              ref={inputRef}
-              rows={3}
-              value={text}
-              placeholder="اكتب أمراً يدوياً للوكيل…"
-              disabled={busy}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void onSend();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy || !text.trim()}
-              onClick={() => void onSend()}
-            >
-              {busy ? "…" : "إرسال"}
-            </button>
-          </div>
-          <p className="cmd-dock__kbd">
-            <kbd>Ctrl</kbd>+<kbd>J</kbd> تبديل · <kbd>Enter</kbd> إرسال · <kbd>Shift+Enter</kbd>{" "}
-            سطر جديد
-          </p>
+          {status ? (
+            <p className="cmd-dock__status" role="status">
+              {status}
+            </p>
+          ) : null}
+
+          {projectId ? (
+            <div className="cmd-dock__agent">
+              <IdeAgentPanel
+                projectId={projectId}
+                activePath={null}
+                treePaths={treePaths}
+                onApplyEdits={async (edits) => {
+                  const res = await applyAgentEdits(projectId, edits);
+                  if (!res.ok) {
+                    setStatus(String(res.error || "تعذّر تطبيق التعديلات"));
+                    return;
+                  }
+                  setStatus(
+                    edits.length
+                      ? `طُبّقت ${edits.length} تعديلات على ${project?.name || "المشروع"}`
+                      : "",
+                  );
+                  const tree = await fetchWorkspaceTree(projectId);
+                  setTreePaths(
+                    (tree.entries || []).filter((e) => e.type === "file").map((e) => e.path),
+                  );
+                }}
+                onOpenPath={(path) => {
+                  setOpen(false);
+                  router.push(
+                    `/ide?project=${encodeURIComponent(projectId)}&file=${encodeURIComponent(path)}`,
+                  );
+                }}
+                onLog={(text) => setStatus(text)}
+                onStartVenture={(brief) => {
+                  setOpen(false);
+                  router.push(
+                    `/ide?project=${encodeURIComponent(projectId)}&venture=${encodeURIComponent(brief.slice(0, 200))}`,
+                  );
+                }}
+              />
+            </div>
+          ) : (
+            <div className="cmd-dock__empty">
+              <p>اربط مشروعاً من «المشاريع» ليبدأ الوكيل بنفس تجربة المحرر.</p>
+              <Link href="/projects" className="btn btn-primary" onClick={() => setOpen(false)}>
+                فتح المشاريع
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </>

@@ -16,6 +16,31 @@ type Item = {
   ts: number;
 };
 
+function formatNotifyWhen(ts: number): string {
+  if (!ts || Number.isNaN(ts)) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("ar", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+  } catch {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+}
+
+function kindLabel(kind: Item["kind"]): string {
+  if (kind === "proposal") return "مقترح";
+  if (kind === "copilot") return "تقرير ذكاء اصطناعي";
+  return "نشاط";
+}
+
 export function NotificationsMenu() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -43,14 +68,20 @@ export function NotificationsMenu() {
       ]);
       if (cancelled) return;
 
-      const copilotItems: Item[] = (reports || []).slice(0, 4).map((r) => ({
-        id: `c-${String(r.id || r.run_id || r.generated_at)}`,
-        title: r.urgent ? "عاجل · مساعد الطيار" : "تقرير مساعد الطيار",
-        detail: String(r.summary || `مشاريع: ${r.projects_scanned ?? "—"}`),
-        href: "/copilot",
-        kind: "copilot",
-        ts: r.generated_at ? Date.parse(String(r.generated_at)) || Date.now() : Date.now(),
-      }));
+      const copilotItems: Item[] = (reports || []).slice(0, 6).map((r) => {
+        const ts = r.generated_at ? Date.parse(String(r.generated_at)) || Date.now() : Date.now();
+        const summary = String(r.summary || "").trim();
+        const scanned =
+          r.projects_scanned != null ? `مشاريع مفحوصة: ${r.projects_scanned}` : "";
+        return {
+          id: `c-${String(r.id || r.run_id || r.generated_at)}`,
+          title: r.urgent ? "تقرير عاجل · النشاط الآلي" : "تقرير النشاط الآلي",
+          detail: [summary, scanned].filter(Boolean).join(" — ") || "تقرير جاهز للمراجعة",
+          href: "/copilot",
+          kind: "copilot" as const,
+          ts,
+        };
+      });
 
       const proposalItems: Item[] = (proposals || [])
         .filter((p) => ["awaiting_approval", "awaiting_merge", "revision_requested"].includes(p.status))
@@ -60,7 +91,7 @@ export function NotificationsMenu() {
           title: p.status === "awaiting_merge" ? "بانتظار الدمج" : "مقترح يحتاج قرارك",
           detail: p.title,
           href: p.status === "awaiting_merge" ? "/execution" : "/proposals",
-          kind: "proposal",
+          kind: "proposal" as const,
           ts: Date.now(),
         }));
 
@@ -70,9 +101,9 @@ export function NotificationsMenu() {
         .map((e) => ({
           id: `a-${e.id}`,
           title: e.title,
-          detail: e.detail || e.agent,
+          detail: e.detail || e.agent || "",
           href: "/log",
-          kind: "activity",
+          kind: "activity" as const,
           ts: e.ts * 1000,
         }));
 
@@ -136,21 +167,25 @@ export function NotificationsMenu() {
           </header>
           <ul className="top-popover__list">
             {items.length === 0 && <li className="top-popover__empty">لا إشعارات الآن</li>}
-            {items.map((item) => (
-              <li key={item.id}>
-                <Link href={item.href} className="top-popover__item" onClick={() => setOpen(false)}>
-                  <em>
-                    {item.kind === "proposal"
-                      ? "مقترح"
-                      : item.kind === "copilot"
-                        ? "مساعد الطيار"
-                        : "نشاط"}
-                  </em>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </Link>
-              </li>
-            ))}
+            {items.map((item) => {
+              const when = formatNotifyWhen(item.ts);
+              return (
+                <li key={item.id}>
+                  <Link href={item.href} className="top-popover__item" onClick={() => setOpen(false)}>
+                    <div className="top-popover__meta">
+                      <em>{kindLabel(item.kind)}</em>
+                      {when ? (
+                        <time className="top-popover__when" dateTime={new Date(item.ts).toISOString()}>
+                          {when}
+                        </time>
+                      ) : null}
+                    </div>
+                    <strong>{item.title}</strong>
+                    {item.detail ? <span>{item.detail}</span> : null}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
           <footer className="top-popover__foot">
             <Link href="/log" onClick={() => setOpen(false)}>

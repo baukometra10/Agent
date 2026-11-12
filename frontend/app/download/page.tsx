@@ -41,7 +41,7 @@ export default function DownloadPage() {
         </p>
         <div className="download-hero__actions">
           <Link href="/ide" className="btn btn-primary">
-            افتح IDE في المتصفح الآن
+            افتح مساحة العمل في المتصفح
           </Link>
           <Link href="/pricing" className="btn btn-ghost">
             الخطط
@@ -57,12 +57,12 @@ export default function DownloadPage() {
         ]).map((p) => (
           <article key={p.id} className="download-card">
             <h2>{p.label}</h2>
-            <p>{p.notes || "حزمة سطح المكتب · Electron"}</p>
+            <p>{p.notes || "حزمة سطح المكتب"}</p>
             <a
               className="btn btn-primary"
               href={`${API_URL}${p.download_path || `/system/desktop/download/${p.id}`}`}
             >
-              تنزيل {p.format || "zip"}
+              تنزيل الحزمة
             </a>
           </article>
         ))}
@@ -71,14 +71,19 @@ export default function DownloadPage() {
       <ol className="download-steps">
         <li>نزّل الحزمة وفك الضغط.</li>
         <li>
-          داخل المجلد: <code>npm install</code> ثم <code>npm start</code>
-        </li>
-        <li>تأكد أن Spixa (الويب + API) يعمل — أو عيّن <code>SPIXA_URL</code> لخادمك.</li>
-        <li>
-          من القائمة: <strong>فتح مجلد…</strong> (Ctrl+O) — نفس مسار IDE على الويب.
+          داخل المجلد ثبّت الحزم ثم شغّل التطبيق: <code dir="ltr">npm install</code> ثم{" "}
+          <code dir="ltr">npm start</code>
         </li>
         <li>
-          لبناء مثبت NSIS/DMG/AppImage: <code>.\scripts\build-desktop.ps1</code> ثم أعد التنزيل من هنا.
+          تأكد أن Spixa (الويب والواجهة البرمجية) يعمل — أو عيّن عنوان الخادم عبر{" "}
+          <code dir="ltr">SPIXA_URL</code>.
+        </li>
+        <li>
+          من القائمة: <strong>فتح مجلد…</strong> (Ctrl+O) — نفس مسار مساحة العمل على الويب.
+        </li>
+        <li>
+          لبناء مثبت سطح المكتب: نفّذ{" "}
+          <code dir="ltr">.\scripts\build-desktop.ps1</code> ثم أعد التنزيل من هنا.
         </li>
       </ol>
       {note ? <p className="settings-hint">{note}</p> : null}

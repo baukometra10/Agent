@@ -5,6 +5,8 @@ import { approveProposal, fetchProjects, fetchProposals } from "@/lib/api";
 import type { Project, Proposal } from "@/lib/types";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SectionLinks } from "@/components/ui/SectionLinks";
+import { proposalOriginLabel, proposalStatusLabel } from "@/lib/uiLabels";
 
 export default function ProposalsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -45,10 +47,11 @@ export default function ProposalsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="مساحة العمل"
+        eyebrow="التسليم"
         title="مركز المقترحات"
         subtitle="اعتماد أو رفض أو طلب مراجعة — لا تنفيذ قبل موافقتك."
       />
+      <SectionLinks sectionId="proposals" />
 
       <GlassCard>
         <label htmlFor="project">المشروع</label>
@@ -79,7 +82,9 @@ export default function ProposalsPage() {
             <h3 style={{ marginTop: 0 }}>{p.title}</h3>
             <p style={{ opacity: 0.85 }}>{p.proposal}</p>
             <p>
-              الحالة: <strong>{p.status}</strong> · المصدر {p.origin}
+              الحالة: <strong>{proposalStatusLabel(p.status)}</strong>
+              {" · "}
+              المصدر: {proposalOriginLabel(p.origin)}
             </p>
             {["awaiting_approval", "draft", "revision_requested"].includes(p.status) && (
               <button type="button" disabled={busy} onClick={() => onApprove(p.id)}>

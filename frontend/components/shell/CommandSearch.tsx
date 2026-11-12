@@ -7,18 +7,18 @@ import { fetchProjects } from "@/lib/api";
 import type { Project } from "@/lib/types";
 
 const staticLinks = [
-  { href: "/", label: "لوحة التحكم", hint: "home" },
-  { href: "/ide", label: "مساحة العمل IDE", hint: "ide editor files" },
-  { href: "/download", label: "تنزيل سطح المكتب", hint: "download desktop" },
-  { href: "/brain", label: "عقل الوكيل", hint: "brain" },
-  { href: "/copilot", label: "مساعد الطيار", hint: "copilot autopilot" },
-  { href: "/projects", label: "المشاريع", hint: "projects" },
-  { href: "/console", label: "الحساب", hint: "console billing" },
-  { href: "/proposals", label: "المقترحات", hint: "proposals" },
-  { href: "/execution", label: "التنفيذ", hint: "execution" },
-  { href: "/knowledge", label: "المعرفة", hint: "knowledge" },
-  { href: "/control-plane", label: "لوحة الأسطول", hint: "fleet" },
-  { href: "/settings", label: "الإعدادات", hint: "settings" },
+  { href: "/", label: "لوحة التحكم", hint: "الرئيسية" },
+  { href: "/ide", label: "مساحة العمل", hint: "محرر الملفات" },
+  { href: "/download", label: "تنزيل سطح المكتب", hint: "تطبيق سطح المكتب" },
+  { href: "/brain", label: "عقل الوكيل", hint: "محادثة" },
+  { href: "/copilot", label: "مساعد الطيار", hint: "تشغيل آلي" },
+  { href: "/projects", label: "المشاريع", hint: "ملفات ومشاريع" },
+  { href: "/console", label: "الحساب", hint: "الفوترة والاستخدام" },
+  { href: "/proposals", label: "المقترحات", hint: "اعتماد" },
+  { href: "/execution", label: "التنفيذ", hint: "فروع ودمج" },
+  { href: "/knowledge", label: "المعرفة", hint: "ذاكرة المشروع" },
+  { href: "/control-plane", label: "لوحة الأسطول", hint: "إدارة متعددة" },
+  { href: "/settings", label: "الإعدادات", hint: "ملكية وتدريب" },
 ];
 
 export function CommandSearch() {

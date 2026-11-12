@@ -243,23 +243,22 @@ export default function SettingsPage() {
               </strong>
             </div>
             <div>
-              <span>Internal</span>
+              <span>داخلي</span>
               <strong style={{ fontSize: "0.95rem" }}>
-                {providers.internal?.live ? "مستضاف" : "stub"}
+                {providers.internal?.live ? "مستضاف" : "تجريبي"}
               </strong>
             </div>
           </div>
           <p className="settings-hint" style={{ marginTop: 12 }}>
-            معلّمون: <code dir="ltr">OPENAI_API_KEY</code> / <code dir="ltr">ANTHROPIC_API_KEY</code>.
-            طالب: <code dir="ltr">INTERNAL_MODEL_BASE_URL</code>.
+            مفاتيح المعلّمين الخارجيين ومسار النموذج الداخلي تُضبط عبر متغيرات البيئة على الخادم.
           </p>
           {gateway?.routes && (
             <ul className="checklist" style={{ marginTop: 8 }}>
               {Object.entries(gateway.routes).map(([role, model]) => (
                 <li key={role}>
                   <span className="check">→</span>
-                  <span dir="ltr">
-                    teacher/{role}: {model}
+                  <span>
+                    معلّم · {role}: <span dir="ltr">{model}</span>
                   </span>
                 </li>
               ))}
@@ -272,8 +271,11 @@ export default function SettingsPage() {
             <pre className="settings-pre">{JSON.stringify(probe, null, 2)}</pre>
           )}
           {gateway?.distillation && (
-            <p className="settings-hint" dir="ltr" style={{ textAlign: "left" }}>
-              distillation: {JSON.stringify(gateway.distillation.examples_by_specialty || {})}
+            <p className="settings-hint">
+              أمثلة التقطير حسب التخصص:{" "}
+              <span dir="ltr">
+                {JSON.stringify(gateway.distillation.examples_by_specialty || {})}
+              </span>
             </p>
           )}
         </GlassCard>
@@ -284,7 +286,7 @@ export default function SettingsPage() {
         <GlassCard title="عقيدة ملكية الذكاء">
           <p style={{ marginTop: 0 }}>
             {gateway?.ownership_goal?.doctrine ||
-              "Internal Intelligence First — External Teacher → Internal Student → Self-Owned Ecosystem"}
+              "الذكاء الداخلي أولًا — معلّم خارجي ← طالب داخلي ← منظومة مملوكة"}
           </p>
           <div className="fleet-kpis">
             <div>
@@ -298,7 +300,7 @@ export default function SettingsPage() {
               </strong>
             </div>
             <div>
-              <span>Local First</span>
+              <span>الأولوية محلياً</span>
               <strong style={{ fontSize: "0.9rem" }}>
                 {gateway?.prefer_internal === false ? "إيقاف" : "مفعّل"}
               </strong>
@@ -366,13 +368,13 @@ export default function SettingsPage() {
             <h3 className="settings-ops__title">تقييم وبذور</h3>
             <div className="settings-ops__row">
               <button type="button" className="btn btn-primary" disabled={busy} onClick={onEval}>
-                {busy ? "…" : "تقييم PI"}
+                {busy ? "…" : "تقييم الجاهزية"}
               </button>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={onTrainPi}>
-                LoRA · PI
+                ضبط دقيق · جاهزية
               </button>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={onSeedCoding}>
-                بذرة Coding
+                بذرة البرمجة
               </button>
               <button
                 type="button"
@@ -380,7 +382,7 @@ export default function SettingsPage() {
                 disabled={busy}
                 onClick={onSeedCodingTutor}
               >
-                دروس خصوصية · Coder
+                دروس خصوصية · مبرمج
               </button>
             </div>
           </div>

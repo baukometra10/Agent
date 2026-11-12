@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import string
 from pathlib import Path
 from uuid import UUID
 
@@ -38,11 +40,27 @@ def _service(session: AsyncSession = Depends(get_db)) -> ProjectService:
     return ProjectService(session)
 
 
-def _safe_under_home(target: Path) -> Path:
-    home = Path.home().resolve()
+_BLOCKED_PARTS = {
+    "windows",
+    "system32",
+    "program files",
+    "program files (x86)",
+    "$recycle.bin",
+    "recovery",
+    "perflogs",
+}
+
+
+def _safe_local_browse(target: Path) -> Path:
+    """Allow browsing the local machine flexibly (home + drives), block OS system dirs."""
     resolved = target.expanduser().resolve()
-    if home not in resolved.parents and resolved != home:
-        raise HTTPException(status_code=400, detail="path_outside_home_forbidden")
+    parts_l = {p.lower() for p in resolved.parts}
+    if parts_l & _BLOCKED_PARTS:
+        raise HTTPException(status_code=403, detail="path_system_forbidden")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="path_not_found")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail="path_not_directory")
     return resolved
 
 
@@ -62,44 +80,76 @@ _ROOT_LABELS_AR = {
 
 @router.get("/local-roots")
 async def local_roots():
-    """Suggest common folders on this machine (same host as API) for Open Folder UX."""
+    """Common folders + Windows drive letters for Open Folder UX."""
     home = Path.home()
-    candidates = {
-        "desktop": home / "Desktop",
-        "desktop_onedrive": home / "OneDrive" / "Desktop",
-        "documents": home / "Documents",
-        "downloads": home / "Downloads",
-        "home": home,
-    }
-    roots = []
-    for key, path in candidates.items():
-        if path.exists() and path.is_dir():
-            roots.append(
-                {
-                    "id": key,
-                    "path": str(path.resolve()),
-                    "label": key,
-                    "label_ar": _ROOT_LABELS_AR.get(key, key),
-                }
-            )
+    candidates: list[tuple[str, Path, str]] = [
+        ("desktop", home / "Desktop", "سطح المكتب"),
+        ("desktop_onedrive", home / "OneDrive" / "Desktop", "سطح المكتب (OneDrive)"),
+        ("documents", home / "Documents", "المستندات"),
+        ("downloads", home / "Downloads", "التنزيلات"),
+        ("home", home, "المجلد الشخصي"),
+    ]
+    roots: list[dict] = []
+    seen: set[str] = set()
+    for key, path, label_ar in candidates:
+        try:
+            if path.exists() and path.is_dir():
+                resolved = str(path.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                roots.append(
+                    {
+                        "id": key,
+                        "path": resolved,
+                        "label": key,
+                        "label_ar": label_ar,
+                    }
+                )
+        except OSError:
+            continue
+
+    # Windows: expose available drive roots so the picker can reach the whole disk
+    if os.name == "nt":
+        for letter in string.ascii_uppercase:
+            drive = Path(f"{letter}:/")
+            try:
+                if drive.exists():
+                    resolved = str(drive.resolve())
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    roots.append(
+                        {
+                            "id": f"drive_{letter.lower()}",
+                            "path": resolved,
+                            "label": f"{letter}:",
+                            "label_ar": f"القرص {letter}:",
+                        }
+                    )
+            except OSError:
+                continue
+
     return {"home": str(home), "roots": roots}
 
 
 @router.get("/local-list")
-async def local_list(path: str = Query(min_length=2)):
-    """List folders and files under a path inside the user home (Desktop browser)."""
-    try:
-        root = _safe_under_home(Path(path))
-    except HTTPException:
-        raise
-    if not root.exists() or not root.is_dir():
-        raise HTTPException(status_code=404, detail="path_not_found")
+async def local_list(
+    path: str = Query(min_length=1),
+    show_hidden: bool = Query(default=False),
+    q: str = Query(default=""),
+):
+    """List folders and files under a local path (flexible device browser)."""
+    root = _safe_local_browse(Path(path))
     folders: list[dict] = []
     files: list[dict] = []
+    needle = (q or "").strip().lower()
     try:
         children = sorted(root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         for child in children:
-            if child.name.startswith("."):
+            if not show_hidden and child.name.startswith("."):
+                continue
+            if needle and needle not in child.name.lower():
                 continue
             if child.is_dir():
                 folders.append(
@@ -127,13 +177,18 @@ async def local_list(path: str = Query(min_length=2)):
                 )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=f"permission_denied: {exc}") from exc
-    parent = root.parent if root != Path.home().resolve() else None
-    parent_path = None
-    if parent is not None:
+
+    parent = root.parent
+    parent_path: str | None
+    if parent == root:
+        parent_path = None
+    else:
         try:
-            parent_path = str(_safe_under_home(parent))
+            parent_path = str(_safe_local_browse(parent))
         except HTTPException:
+            # At drive root / filesystem root
             parent_path = None
+
     return {
         "path": str(root),
         "name": root.name or str(root),
@@ -141,6 +196,8 @@ async def local_list(path: str = Query(min_length=2)):
         "folders": folders,
         "files": files,
         "entries": folders + files,
+        "show_hidden": show_hidden,
+        "q": needle,
     }
 
 

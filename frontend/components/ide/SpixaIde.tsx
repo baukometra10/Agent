@@ -87,6 +87,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState(initialProjectId || "");
   const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
+  const [pendingOpenFile, setPendingOpenFile] = useState<string | null>(null);
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [tabs, setTabs] = useState<OpenTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -229,10 +230,20 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     const pid = params.get("project");
     const session = params.get("session");
     const share = params.get("share");
+    const filePath = params.get("file");
+    const venture = params.get("venture");
     if (pid) setProjectId(pid);
     if (session) {
       setAgentSessionId(session);
       setRightPanel("agent");
+    }
+    if (venture) {
+      setVentureSeed(venture);
+      setRightPanel("venture");
+    }
+    if (filePath) {
+      setRightPanel((cur) => cur || "agent");
+      setPendingOpenFile(filePath);
     }
     if (share) {
       void (async () => {
@@ -278,6 +289,18 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     setActivePath(null);
     setProblems([]);
   }, [projectId, reloadTree]);
+
+  useEffect(() => {
+    if (!projectId || !pendingOpenFile) return;
+    const path = pendingOpenFile;
+    const timer = window.setTimeout(() => {
+      setPendingOpenFile(null);
+      void openFile(path);
+    }, 120);
+    return () => window.clearTimeout(timer);
+    // Intentionally open once when project + pending path are ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, pendingOpenFile]);
 
   useEffect(() => {
     if (!active || active.kind !== "code") setProblems([]);
@@ -553,6 +576,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
       }
       if (e.key === "Escape") {
         setPaletteOpen(false);
+        setPaletteQ("");
         setShowOpenFolder(false);
         setShowDiskBrowser(false);
       }
@@ -969,24 +993,58 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
       </div>
 
       {paletteOpen && (
-        <div className="ide-modal" role="dialog" aria-label="بحث الملفات">
-          <div className="ide-modal__card">
+        <div
+          className="ide-modal"
+          role="dialog"
+          aria-label="بحث الملفات"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setPaletteOpen(false);
+              setPaletteQ("");
+            }
+          }}
+        >
+          <div
+            className="ide-modal__card"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <input
               autoFocus
               dir="ltr"
               value={paletteQ}
               onChange={(e) => setPaletteQ(e.target.value)}
-              placeholder="ابحث عن ملف… (Ctrl+P)"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setPaletteOpen(false);
+                  setPaletteQ("");
+                }
+              }}
+              placeholder="ابحث عن ملف… (Esc أو نقرة فارغة للإلغاء)"
             />
-            <ul>
+            <ul
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) {
+                  setPaletteOpen(false);
+                  setPaletteQ("");
+                }
+              }}
+            >
               {paletteHits.map((f) => (
                 <li key={f.path}>
-                  <button type="button" onClick={() => void openFile(f.path)}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void openFile(f.path);
+                      setPaletteOpen(false);
+                      setPaletteQ("");
+                    }}
+                  >
                     {f.path}
                   </button>
                 </li>
               ))}
-              {!paletteHits.length && <li className="ide-empty">لا نتائج</li>}
+              {!paletteHits.length && <li className="ide-empty">لا نتائج — انقر خارج القائمة للإغلاق</li>}
             </ul>
           </div>
         </div>
@@ -1003,7 +1061,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
           <div className="ide-modal__card">
             <h2>فتح مجلد محلي</h2>
             <p className="settings-hint">
-              تصفّح سطح المكتب وملفات جهازك، ثم اربط المجلد — الحفظ يكون مباشرة على جهازك.
+              تصفّح الأقراص والمجلدات على جهازك، ثم اربط المجلد — الحفظ مباشرة على القرص.
             </p>
             <div className="ide-welcome__actions">
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void pickDesktopFolder()}>

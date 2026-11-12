@@ -21,9 +21,10 @@ import {
 import { BrandMark } from "./BrandMark";
 import { isAdmin, useUserSafe } from "@/hooks/useUser";
 import { hasFeature } from "@/lib/user";
+import { planLabel } from "@/lib/uiLabels";
 
 const userWorkspace = [
-  { href: "/ide", label: "مساحة العمل IDE", icon: IconExecution, feature: "projects" },
+  { href: "/ide", label: "مساحة العمل", icon: IconExecution, feature: "projects" },
   { href: "/brain", label: "عقل الوكيل", icon: IconUnderstanding, feature: "chat" },
   { href: "/projects", label: "المشاريع والملفات", icon: IconProjects, feature: "projects" },
   { href: "/copilot", label: "مساعد الطيار", icon: IconUnderstanding, feature: "copilot" },
@@ -262,7 +263,7 @@ export function Sidebar({ open, onClose, onToggle }: Props) {
               <strong>{admin ? "صلاحيات عليا" : "مساحة العضو"}</strong>
               <span>
                 {user.signedIn
-                  ? `${user.tokensRemaining} توكن · ${user.plan}`
+                  ? `${user.tokensRemaining} توكن · ${planLabel(user.plan)}`
                   : "يلزم تسجيل الدخول"}
               </span>
             </div>

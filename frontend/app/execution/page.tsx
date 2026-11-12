@@ -13,6 +13,8 @@ import {
 import type { ExecutionResult, Project, Proposal } from "@/lib/types";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SectionLinks } from "@/components/ui/SectionLinks";
+import { proposalStatusLabel } from "@/lib/uiLabels";
 
 export default function ExecutionPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -64,7 +66,7 @@ export default function ExecutionPage() {
     const result = await mergeProposal(projectId, proposalId);
     setBusy(false);
     if (!result) {
-      setError("فشل الدمج — يتطلب حالة awaiting_merge وموافقة بشرية.");
+      setError("فشل الدمج — يجب أن يكون المقترح بانتظار الدمج مع موافقة بشرية.");
       return;
     }
     setLast(result);
@@ -115,10 +117,11 @@ export default function ExecutionPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="مساحة العمل"
+        eyebrow="التسليم"
         title="مركز التنفيذ"
         subtitle="تنفيذ على فرع معزول ثم دمج يدوي صريح."
       />
+      <SectionLinks sectionId="execution" />
 
       <GlassCard>
         <label htmlFor="project">المشروع</label>
@@ -140,7 +143,7 @@ export default function ExecutionPage() {
             دورة تطور (بدون تنفيذ)
           </button>
           <button type="button" className="btn btn-ghost" disabled={busy || !projectId} onClick={onPlanDeploy}>
-            خطة نشر staging
+            خطة نشر تجريبي
           </button>
           <button type="button" className="btn btn-ghost" disabled={busy || !projectId} onClick={onConfirmDeploy}>
             تأكيد نشر (محاكاة)
@@ -160,7 +163,9 @@ export default function ExecutionPage() {
             <h3 style={{ marginTop: 0 }}>{p.title}</h3>
             <p style={{ opacity: 0.8 }}>{p.problem}</p>
             <p>
-              الحالة: <strong>{p.status}</strong> · الأولوية {p.priority}
+              الحالة: <strong>{proposalStatusLabel(p.status)}</strong>
+              {" · "}
+              الأولوية: {p.priority}
             </p>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
               {p.status === "approved" && (

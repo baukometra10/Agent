@@ -17,6 +17,16 @@ export type LocalEntry = {
   has_pyproject?: boolean;
 };
 
+export type LocalListResult = {
+  path: string;
+  name?: string;
+  parent: string | null;
+  folders: LocalEntry[];
+  files: LocalEntry[];
+  show_hidden?: boolean;
+  q?: string;
+};
+
 export async function fetchLocalRoots(): Promise<{ home: string; roots: LocalRoot[] }> {
   try {
     const res = await fetch(`${API_URL}/api/projects/local-roots`, { cache: "no-store" });
@@ -27,18 +37,17 @@ export async function fetchLocalRoots(): Promise<{ home: string; roots: LocalRoo
   }
 }
 
-export async function fetchLocalList(path: string): Promise<{
-  path: string;
-  name?: string;
-  parent: string | null;
-  folders: LocalEntry[];
-  files: LocalEntry[];
-} | null> {
+export async function fetchLocalList(
+  path: string,
+  opts?: { showHidden?: boolean; q?: string },
+): Promise<LocalListResult | null> {
   try {
-    const res = await fetch(
-      `${API_URL}/api/projects/local-list?path=${encodeURIComponent(path)}`,
-      { cache: "no-store" },
-    );
+    const params = new URLSearchParams({ path });
+    if (opts?.showHidden) params.set("show_hidden", "true");
+    if (opts?.q?.trim()) params.set("q", opts.q.trim());
+    const res = await fetch(`${API_URL}/api/projects/local-list?${params}`, {
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     return res.json();
   } catch {

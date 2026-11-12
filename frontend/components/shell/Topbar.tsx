@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { IconGear } from "@/components/icons";
 import { useUser } from "@/hooks/useUser";
+import { planLabel } from "@/lib/uiLabels";
 import { AutopilotToggle } from "./AutopilotToggle";
 import { BrandMark } from "./BrandMark";
 import { CommandSearch } from "./CommandSearch";
@@ -46,7 +47,7 @@ export function Topbar({ navOpen, onToggleNav }: Props) {
       <div className="topbar__user">
         {user.signedIn ? (
           <Link href="/console?tab=usage" className="token-chip" title="الاستخدام والفوترة">
-            <span className="token-chip__plan">{user.plan}</span>
+            <span className="token-chip__plan">{planLabel(user.plan)}</span>
             <span className="token-chip__count">{user.tokensRemaining}</span>
             <span className="token-chip__meter" aria-hidden>
               <i style={{ width: `${pct}%` }} />

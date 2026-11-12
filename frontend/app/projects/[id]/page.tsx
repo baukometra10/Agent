@@ -4,6 +4,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { ProgressRing } from "@/components/dashboard/ProgressRing";
 import { AgentWorkspace } from "@/components/brain/AgentWorkspace";
 import { fetchKnowledge, fetchProject } from "@/lib/api";
+import { SectionLinks } from "@/components/ui/SectionLinks";
+import {
+  memoryLayerLabel,
+  projectStatusLabel,
+  sourceTypeLabel,
+} from "@/lib/uiLabels";
 import { UnderstandButton } from "./understand-button";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,8 +39,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <PageHeader
           eyebrow="مشروع معزول"
           title={project.name}
-          subtitle={`الحالة: ${project.status} · العزل: ${project.isolation_namespace} · تقدم الفهم: ${progress}%`}
+          subtitle={`الحالة: ${projectStatusLabel(project.status)} · تقدم الفهم: ${progress}%`}
         />
+        <SectionLinks sectionId="projects" />
 
         <UnderstandButton projectId={project.id} />
 
@@ -82,10 +89,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                         ? "حقيقة"
                         : node.kind === "inference"
                           ? "استنتاج"
-                          : "غير مؤكد"}{" "}
-                      · {node.memory_layer}/{node.category} · ثقة {Math.round(node.confidence * 100)}% ·
-                      مصدر {node.source_type}
-                      {node.source_path ? `:${node.source_path}` : ""}
+                          : "غير مؤكد"}
+                      {" · "}
+                      {memoryLayerLabel(node.memory_layer)}
+                      {node.category ? ` / ${memoryLayerLabel(node.category)}` : ""}
+                      {" · "}
+                      ثقة {Math.round(node.confidence * 100)}%
+                      {" · "}
+                      مصدر {sourceTypeLabel(node.source_type)}
+                      {node.source_path ? (
+                        <>
+                          {" · "}
+                          <span dir="ltr">{node.source_path}</span>
+                        </>
+                      ) : null}
                     </small>
                   </div>
                   <p style={{ margin: "0.55rem 0 0", lineHeight: 1.55 }}>{node.content}</p>

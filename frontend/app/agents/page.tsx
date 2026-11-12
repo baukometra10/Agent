@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL, chiefSaturateDemo, fetchChiefStatus } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SectionLinks } from "@/components/ui/SectionLinks";
+import {
+  agentDisplayName,
+  departmentLabel,
+  workerStatusLabel,
+} from "@/lib/uiLabels";
 
 type Agent = {
   name: string;
@@ -21,6 +27,24 @@ type Hierarchy = {
   critic: { name: string; role: string };
   intents: { intent: string; label_ar: string; specialists: string[]; include_critic: boolean }[];
 };
+
+const ROLE_HINT_AR: Record<string, string> = {
+  coding: "برمجة",
+  review: "مراجعة",
+  planning: "تخطيط",
+  research: "بحث",
+  security: "أمن",
+  design: "تصميم",
+  quality: "جودة",
+  ops: "تشغيل",
+  general: "عام",
+};
+
+function specialtyLabel(raw: string): string {
+  const key = String(raw || "").trim();
+  if (!key) return "—";
+  return ROLE_HINT_AR[key.toLowerCase()] || key;
+}
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -70,15 +94,16 @@ export default function AgentsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="مساحة العمل"
+        eyebrow="الذكاء"
         title="فريق الوكلاء"
-        subtitle="Conductor وChief والمتخصصون — هيكل الأوركسترا الحية."
+        subtitle="القائد والرئيس والمتخصصون — هيكل الأوركسترا الحية."
       />
+      <SectionLinks sectionId="agents" />
 
       <div className="agents-hero">
-        <GlassCard title="الوكيل الرئيس · ChiefAgent">
-          <strong>{hierarchy?.chief?.name || "ChiefAgent"}</strong>
-          <p>{hierarchy?.chief?.role || "General lead on owned models"}</p>
+        <GlassCard title="الوكيل الرئيس">
+          <strong>{agentDisplayName(hierarchy?.chief?.name) || "الوكيل الرئيس"}</strong>
+          <p>{hierarchy?.chief?.role || "قيادة عامة على النماذج المملوكة"}</p>
           <div className="fleet-kpis" style={{ marginTop: 12 }}>
             <div>
               <span>عمال</span>
@@ -104,14 +129,18 @@ export default function AgentsPage() {
           </button>
         </GlassCard>
         <GlassCard title="مقعد المحادثة">
-          <strong>{conductor?.name || hierarchy?.conductor.name || "MasterOrchestrator"}</strong>
+          <strong>
+            {agentDisplayName(conductor?.name || hierarchy?.conductor.name) || "منسّق المحادثة"}
+          </strong>
           <p>{hierarchy?.conductor.role || conductor?.description}</p>
-          <span className="chip">Chat seat</span>
+          <span className="chip">محادثة</span>
         </GlassCard>
         <GlassCard title="الناقد المستقل">
-          <strong>{critic?.name || hierarchy?.critic.name || "IndependentCritic"}</strong>
+          <strong>
+            {agentDisplayName(critic?.name || hierarchy?.critic.name) || "الناقد المستقل"}
+          </strong>
           <p>{hierarchy?.critic.role || critic?.description}</p>
-          <span className="chip">Reviewer</span>
+          <span className="chip">مراجعة</span>
         </GlassCard>
       </div>
 
@@ -122,11 +151,11 @@ export default function AgentsPage() {
               <li key={String(w.id)}>
                 <strong>{String(w.name)}</strong>
                 <span>
-                  {String(w.specialty)} · {String(w.status)}
+                  {specialtyLabel(String(w.specialty || ""))} · {workerStatusLabel(String(w.status || ""))}
                   {w.trained ? " · مدرَّب" : " · قيد التدريب"}
                 </span>
-                <p dir="ltr">
-                  tasks={String(w.completed_tasks ?? 0)} · id={String(w.id)}
+                <p>
+                  مهام مكتملة: {String(w.completed_tasks ?? 0)}
                 </p>
               </li>
             ))}
@@ -162,9 +191,8 @@ export default function AgentsPage() {
             {hierarchy.intents.map((i) => (
               <article key={i.intent} className="intent-card">
                 <strong>{i.label_ar}</strong>
-                <span>{i.intent}</span>
-                <p>{i.specialists.slice(0, 4).join(" · ")}</p>
-                {i.include_critic && <em>يشمل IndependentCritic</em>}
+                <p>{i.specialists.slice(0, 4).map(agentDisplayName).join(" · ")}</p>
+                {i.include_critic && <em>يشمل الناقد المستقل</em>}
               </article>
             ))}
           </div>
@@ -173,14 +201,14 @@ export default function AgentsPage() {
 
       <div className="dept-grid">
         {byDept.map(([dept, rows]) => (
-          <GlassCard key={dept} title={dept}>
+          <GlassCard key={dept} title={departmentLabel(dept)}>
             <ul className="agent-list">
               {rows.map((a) => (
                 <li key={a.name}>
-                  <strong>{a.name}</strong>
+                  <strong>{agentDisplayName(a.name)}</strong>
                   <span>
-                    {a.model_role}
-                    {a.can_execute_code ? " · code" : ""}
+                    {specialtyLabel(a.model_role)}
+                    {a.can_execute_code ? " · ينفّذ كوداً" : ""}
                   </span>
                   <p>{a.description}</p>
                 </li>
