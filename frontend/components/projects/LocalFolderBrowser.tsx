@@ -12,7 +12,14 @@ import {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSelect: (folderPath: string) => void;
+  /** Return false / `{ ok:false }` to keep the dialog open and show the error. */
+  onSelect: (
+    folderPath: string,
+  ) =>
+    | void
+    | boolean
+    | { ok: boolean; error?: string }
+    | Promise<void | boolean | { ok: boolean; error?: string }>;
 };
 
 function formatSize(size?: number): string {
@@ -33,10 +40,13 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
   const [filterQ, setFilterQ] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [binding, setBinding] = useState(false);
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
   const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const diskBaseRef = useRef("");
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
 
   const loadPath = useCallback(async (path: string, opts?: { q?: string; showHidden?: boolean }) => {
     const q = opts?.q ?? filterQ;
@@ -126,17 +136,46 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  async function confirmSelected(path?: string | null) {
+    const target = (path || selectedRef.current || "").trim();
+    if (!target || binding) return;
+    setBinding(true);
+    setError("");
+    try {
+      const result = await onSelect(target);
+      if (result === false) {
+        setError("تعذّر فتح المجلد المختار.");
+        return;
+      }
+      if (result && typeof result === "object" && result.ok === false) {
+        setError(result.error || "تعذّر فتح المجلد المختار.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر فتح المجلد المختار.");
+    } finally {
+      setBinding(false);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
+        return;
+      }
+      if (e.key === "Enter" && selectedRef.current && !binding) {
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea") return;
+        e.preventDefault();
+        void confirmSelected(selectedRef.current);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onClose, binding]);
 
   useEffect(() => {
     return () => {
@@ -329,19 +368,19 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
           <p>
             {selected
               ? `المحدد: ${selected}`
-              : "اضغط مجلدًا لتحديده، أو مساحة فارغة لإلغاء التحديد. الربط للمجلد فقط."}
+              : "اضغط مجلدًا لتحديده، ثم «استخدام هذا المجلد» أو Enter. (فتح = دخول للمجلد)"}
           </p>
           <div className="folder-browser__actions">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={binding}>
               إلغاء
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!selected}
-              onClick={() => selected && onSelect(selected)}
+              disabled={!selected || binding}
+              onClick={() => void confirmSelected(selected)}
             >
-              استخدام هذا المجلد
+              {binding ? "جارٍ الفتح…" : "استخدام هذا المجلد"}
             </button>
           </div>
         </footer>

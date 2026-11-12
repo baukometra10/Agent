@@ -214,6 +214,18 @@ class IntelligentModelRouter:
             self._persist_metrics()
         return self.metrics.as_dict()
 
+    def _teacher_upstream_available(self) -> bool:
+        """True when at least one external teacher key is configured."""
+        s = self.settings
+        if bool(s.model_gateway_force_simulate):
+            return False
+        return bool(
+            (s.openrouter_api_key or "").strip()
+            or (s.cursor_api_key or "").strip()
+            or (s.openai_api_key or "").strip()
+            or (s.anthropic_api_key or "").strip()
+        )
+
     def decide(self, role: ModelRole, *, metadata: dict[str, Any] | None = None) -> RouteDecision:
         meta = metadata or {}
         if meta.get("force_teacher"):
@@ -224,8 +236,35 @@ class IntelligentModelRouter:
                 escalate=True,
                 confidence=0.0,
             )
-        if meta.get("force_internal") or self.settings.prefer_internal:
+        if meta.get("force_internal"):
             internal_id = ROLE_TO_INTERNAL.get(role.value, "internal/coding")
+            return RouteDecision(
+                RouteTier.internal,
+                internal_id,
+                "force_internal",
+                confidence=0.5,
+            )
+
+        internal_id = ROLE_TO_INTERNAL.get(role.value, "internal/coding")
+        # Bootstrap: owned student not ready yet → external teacher leads the turn
+        if (
+            bool(getattr(self.settings, "teacher_bootstrap_first", True))
+            and not meta.get("forbid_teacher")
+            and self._teacher_upstream_available()
+            and not _specialty_teachers_retired(internal_id)
+            and not _specialty_handoff_ready(internal_id)
+            and not _specialty_promoted(internal_id)
+        ):
+            return RouteDecision(
+                RouteTier.teacher,
+                self._teacher_id(role),
+                "bootstrap_teacher_first",
+                escalate=True,
+                confidence=0.0,
+                evidence={"specialty": internal_id, "policy": "bootstrap_allowed"},
+            )
+
+        if self.settings.prefer_internal:
             return RouteDecision(
                 RouteTier.internal,
                 internal_id,
@@ -235,7 +274,7 @@ class IntelligentModelRouter:
         # Default doctrine: local first
         return RouteDecision(
             RouteTier.internal,
-            ROLE_TO_INTERNAL.get(role.value, "internal/coding"),
+            internal_id,
             "local_first_default",
             confidence=0.5,
         )

@@ -22,7 +22,12 @@ import {
   saveWorkspaceFile,
   type TreeEntry,
 } from "@/lib/workspace";
-import { isSpixaDesktop, openLocalProjectFolder, pickLocalFolder } from "@/lib/openLocalProject";
+import {
+  isSpixaDesktop,
+  openFolderErrorMessage,
+  openLocalProjectFolder,
+  pickLocalFolder,
+} from "@/lib/openLocalProject";
 import { LocalFolderBrowser } from "@/components/projects/LocalFolderBrowser";
 import { useIdeTopbarActive, useIdeTopbarHost } from "@/components/shell/IdeTopbarSlot";
 import { loadIdeLayout, saveIdeLayout, type IdeRightPanel } from "@/lib/ideLayout";
@@ -417,18 +422,20 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
     setShowDiskBrowser(true);
   }
 
-  async function bindChosenFolder(chosen: string) {
+  async function bindChosenFolder(chosen: string): Promise<{ ok: boolean; error?: string }> {
     setBusy(true);
     const result = await openLocalProjectFolder(chosen, `Opened from disk browser · ${chosen}`);
     setBusy(false);
     if (!result.ok) {
-      setStatus("تعذّر فتح المجلد المختار.");
-      return;
+      const text = openFolderErrorMessage(result.error);
+      setStatus(text);
+      return { ok: false, error: text };
     }
     setShowDiskBrowser(false);
     setShowOpenFolder(false);
     await refreshProjects(result.project.id);
     setStatus(`فُتح المجلد · ${result.project.name}`);
+    return { ok: true };
   }
 
   function closeTab(path: string) {
@@ -1053,7 +1060,7 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
       <LocalFolderBrowser
         open={showDiskBrowser}
         onClose={() => setShowDiskBrowser(false)}
-        onSelect={(folder) => void bindChosenFolder(folder)}
+        onSelect={(folder) => bindChosenFolder(folder)}
       />
 
       {showOpenFolder && (

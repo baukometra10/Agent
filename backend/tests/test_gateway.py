@@ -41,6 +41,7 @@ async def test_local_first_then_escalate_to_teacher():
     settings = Settings(
         openai_api_key="sk-live",
         prefer_internal=True,
+        teacher_bootstrap_first=False,
         internal_model_base_url="",
         internal_confidence_threshold=0.55,
         model_cache_enabled=False,
@@ -63,6 +64,39 @@ async def test_local_first_then_escalate_to_teacher():
     assert response.content == "teacher-answer"
     assert response.route_tier == "teacher"
     assert router.metrics.escalations >= 1
+    assert router.metrics.teacher_ok >= 1
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_teacher_first_when_specialty_not_ready():
+    settings = Settings(
+        openai_api_key="sk-live",
+        prefer_internal=True,
+        teacher_bootstrap_first=True,
+        internal_model_base_url="",
+        model_cache_enabled=False,
+        distillation_enabled=False,
+        model_gateway_force_simulate=False,
+        anthropic_api_key="",
+        openrouter_api_key="",
+    )
+    router = IntelligentModelRouter(settings=settings)
+    gateway = ModelGateway(settings=settings, router=router)
+    decision = router.decide(ModelRole.coding, metadata={"skip_cache": True})
+    assert decision.tier.value == "teacher"
+    assert decision.reason == "bootstrap_teacher_first"
+
+    with patch(
+        "app.gateway.router.openai_chat",
+        new=AsyncMock(return_value=("bootstrap-teacher", 3, 2, {"id": "b1"})),
+    ):
+        response = await gateway.complete(
+            ModelRole.coding,
+            "build a button",
+            metadata={"skip_cache": True},
+        )
+    assert response.content == "bootstrap-teacher"
+    assert response.route_tier == "teacher"
     assert router.metrics.teacher_ok >= 1
 
 

@@ -91,6 +91,8 @@ class Settings(BaseSettings):
     # Internal Intelligence First — external teachers only when quality gates demand
     prefer_internal: bool = True
     internal_intelligence_first: bool = True
+    # Before a specialty is handoff-ready / promoted, lead with the external teacher
+    teacher_bootstrap_first: bool = True
     # When a specialty LoRA is promoted, keep traffic on owned students harder
     prefer_promoted_internal: bool = True
     promoted_no_escalate: bool = True  # skip teacher if promoted adapter + confident answer

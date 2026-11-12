@@ -227,6 +227,26 @@ export default function SettingsPage() {
         <GlassCard title="بوابة النماذج (معلّم / طالب)">
           <div className="fleet-kpis">
             <div>
+              <span>OpenRouter</span>
+              <strong style={{ fontSize: "0.95rem" }}>
+                {providers.openrouter?.live
+                  ? "مباشر"
+                  : providers.openrouter?.configured
+                    ? "مفتاح"
+                    : "—"}
+              </strong>
+            </div>
+            <div>
+              <span>Cursor معلّم</span>
+              <strong style={{ fontSize: "0.95rem" }}>
+                {providers.cursor?.live
+                  ? "مباشر"
+                  : providers.cursor?.configured
+                    ? "مفتاح"
+                    : "—"}
+              </strong>
+            </div>
+            <div>
               <span>OpenAI</span>
               <strong style={{ fontSize: "0.95rem" }}>
                 {providers.openai?.live ? "مباشر" : providers.openai?.configured ? "مفتاح" : "—"}
@@ -248,9 +268,20 @@ export default function SettingsPage() {
                 {providers.internal?.live ? "مستضاف" : "تجريبي"}
               </strong>
             </div>
+            <div>
+              <span>وضع البداية</span>
+              <strong style={{ fontSize: "0.85rem" }}>
+                {gateway?.teacher_bootstrap_first === false ? "داخلي أولاً" : "معلّم أولاً"}
+              </strong>
+            </div>
           </div>
           <p className="settings-hint" style={{ marginTop: 12 }}>
-            مفاتيح المعلّمين الخارجيين ومسار النموذج الداخلي تُضبط عبر متغيرات البيئة على الخادم.
+            المصدر:{" "}
+            <span dir="ltr">{gateway?.teacher_upstream || "openrouter"}</span>
+            {gateway?.teacher_upstream_live ? " · متصل" : " · غير متصل"}
+            . ضع <code dir="ltr">OPENROUTER_API_KEY</code> أو{" "}
+            <code dir="ltr">CURSOR_API_KEY</code> في بيئة الخادم — في البداية يقود المعلّم الخارجي
+            حتى تصبح التخصصات المملوكة جاهزة.
           </p>
           {gateway?.routes && (
             <ul className="checklist" style={{ marginTop: 8 }}>

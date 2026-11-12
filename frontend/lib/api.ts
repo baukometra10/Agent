@@ -368,10 +368,13 @@ export type ModelGatewayStatus = {
   routes: Record<string, string>;
   providers: Record<
     string,
-    { configured: boolean; live: boolean; tier?: string; host?: string }
+    { configured: boolean; live: boolean; tier?: string; host?: string; note?: string }
   >;
   force_simulate: boolean;
   prefer_internal?: boolean;
+  teacher_upstream?: string;
+  teacher_upstream_live?: boolean;
+  teacher_bootstrap_first?: boolean;
   mode: string;
   internal_family?: Array<Record<string, unknown>>;
   router?: Record<string, unknown>;

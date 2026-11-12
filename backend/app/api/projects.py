@@ -238,6 +238,11 @@ async def create_from_path(payload: ProjectCreatePath, service: ProjectService =
         )
     except (ValueError, FileNotFoundError, PermissionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"open_folder_failed: {exc}",
+        ) from exc
 
 
 @router.post("/blank", response_model=ProjectOut, status_code=201)

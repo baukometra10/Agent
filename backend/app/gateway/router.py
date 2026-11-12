@@ -113,6 +113,9 @@ class ModelGateway:
             or self._use_cursor_upstream()
             or openai_ok
             or anthropic_ok,
+            "teacher_bootstrap_first": bool(
+                getattr(self.settings, "teacher_bootstrap_first", True)
+            ),
             "chiefs": chief_catalog(openrouter_configured=openrouter_ok),
             "providers": {
                 "cursor": {

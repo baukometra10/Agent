@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { LocalFolderBrowser } from "@/components/projects/LocalFolderBrowser";
 import {
   isSpixaDesktop,
+  openFolderErrorMessage,
   openLocalProjectFolder,
   pickLocalFolder,
 } from "@/lib/openLocalProject";
@@ -26,27 +27,24 @@ export function OpenLocalFolderCard() {
     setDesktop(isSpixaDesktop());
   }, []);
 
-  async function openPath(local: string) {
+  async function openPath(local: string): Promise<{ ok: boolean; error?: string }> {
     setBusy(true);
     setMsg(null);
     const result = await openLocalProjectFolder(local);
     setBusy(false);
     if (!result.ok) {
-      setMsg(
-        result.error === "local_api_unreachable"
-          ? "شغّل الـ API محلياً (start.ps1 على المنفذ 7000) حتى يمكن قراءة مجلدات جهازك."
-          : "تعذّر فتح المجلد — تأكد أن المسار موجود وأن الـ API المحلي يعمل على نفس الجهاز.",
-      );
-      return;
+      const text = openFolderErrorMessage(result.error);
+      setMsg(text);
+      return { ok: false, error: text };
     }
     const disk = result.project.workspace_path || result.project.source_uri || local;
     setMsg(`مرتبط بمجلدك على الجهاز: ${disk}`);
     setShowBrowser(false);
     router.push(`/ide?project=${result.project.id}`);
+    return { ok: true };
   }
 
   async function onPick() {
-    // Prefer native OS dialog when Desktop app is available
     if (desktop) {
       const chosen = await pickLocalFolder();
       if (chosen) {
@@ -54,7 +52,6 @@ export function OpenLocalFolderCard() {
         return;
       }
     }
-    // Web / local API: show Desktop & device folders in-app
     setShowBrowser(true);
   }
 
@@ -62,8 +59,7 @@ export function OpenLocalFolderCard() {
     <>
       <GlassCard title="فتح مشروع من الجهاز">
         <p className="settings-hint" style={{ marginTop: 0 }}>
-          اضغط لعرض <strong>سطح المكتب والمستندات</strong> ومحتويات جهازك، ثم اختر المجلد الذي سيُحفظ
-          فيه الكود مباشرة.
+          اختر مجلدًا ثم اضغط <strong>استخدام هذا المجلد</strong> — بعدها يُفتح في مساحة العمل.
         </p>
 
         <div className="admin-user__actions">
@@ -112,7 +108,7 @@ export function OpenLocalFolderCard() {
       <LocalFolderBrowser
         open={showBrowser}
         onClose={() => setShowBrowser(false)}
-        onSelect={(folder) => void openPath(folder)}
+        onSelect={(folder) => openPath(folder)}
       />
     </>
   );

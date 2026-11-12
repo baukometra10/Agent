@@ -617,13 +617,14 @@ class MasterConductor:
                 "Retain and execute every user instruction for THIS project only."
             )
         response = await self.gateway.complete(
-            ModelRole.reasoning,
+            ModelRole.coding if ide_coding else ModelRole.reasoning,
             prompt,
             system=system,
             metadata={
                 "agent": "MasterOrchestrator",
                 "project_id": str(project.id),
                 "prefer_promoted": True,
+                "ide_coding": ide_coding,
             },
         )
         text = response.content
