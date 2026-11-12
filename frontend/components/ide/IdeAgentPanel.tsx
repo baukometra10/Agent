@@ -20,6 +20,7 @@ import {
   detectUserLang,
   displayAgentReply,
   ensureBuildEdits,
+  filterNoopEdits,
   parseAgentEdits,
   type FileEdit,
 } from "@/lib/agentEdits";
@@ -1672,7 +1673,7 @@ export function IdeAgentPanel({
       const teacherFailed =
         /\[provider-error:/i.test(reply) ||
         /cursor_key_missing|refused_simulate/i.test(reply);
-      const edits = teacherFailed
+      let edits = teacherFailed
         ? []
         : sendMode === "ask"
           ? []
@@ -1739,49 +1740,60 @@ export function IdeAgentPanel({
             label: UI_LANG[detectUserLang(message)].writing,
           },
         });
-        appliedEdits = await snapshotEdits(edits);
-        await onApplyEdits(appliedEdits);
-        onLog?.(`${tabTitle} · ${route.text} · ${appliedEdits.length} file(s)`);
-        const lang = detectUserLang(message);
-        const wrote =
-          lang === "de"
-            ? `\n\n✓ ${appliedEdits.length} Datei(en) geschrieben.`
-            : lang === "ar"
-              ? `\n\n✓ تم كتابة ${appliedEdits.length} ملف.`
-              : `\n\n✓ Wrote ${appliedEdits.length} file(s).`;
-        if (!/✓/.test(finalDisplay)) {
-          finalDisplay = `${finalDisplay}${wrote}`.trim();
+        const snapped = await snapshotEdits(edits);
+        appliedEdits = filterNoopEdits(snapped);
+        if (appliedEdits.length) {
+          await onApplyEdits(appliedEdits);
+          onLog?.(`${tabTitle} · ${route.text} · ${appliedEdits.length} file(s)`);
+          // Cursor-like: keep the prose clean — no "✓ N Dateien geschrieben" chrome
+          patchLastAssistant(sid, {
+            text: finalDisplay,
+            edits: appliedEdits,
+            streaming: false,
+            status: null,
+          });
+          void rapidLearnFromIdeApply({
+            projectId,
+            userText: message,
+            assistantText: finalDisplay,
+            files: appliedEdits.map((e) => e.path),
+            intent: "implement",
+          });
+        } else {
+          // All identical to disk — talk only, no fake "Wrote 5"
+          onLog?.(`${tabTitle} · ${route.text} · no file changes`);
+          patchLastAssistant(sid, {
+            text: finalDisplay,
+            edits: undefined,
+            streaming: false,
+            status: null,
+          });
         }
-        patchLastAssistant(sid, {
-          text: finalDisplay,
-          edits: appliedEdits,
-          streaming: false,
-          status: null,
-        });
-        void rapidLearnFromIdeApply({
-          projectId,
-          userText: message,
-          assistantText: finalDisplay,
-          files: appliedEdits.map((e) => e.path),
-          intent: "implement",
-        });
       } else if (edits.length) {
         onLog?.(`${tabTitle} · ${route.text} · review ${edits.length}`);
       }
 
+      const langNotify = detectUserLang(message);
+      const wroteSomething = Boolean(appliedEdits.length && !useReview && !teacherFailed);
       notifyTabDone({
         title: tabTitle,
         body: useReview
-          ? detectUserLang(message) === "de"
+          ? langNotify === "de"
             ? "Dateien warten auf Review"
-            : detectUserLang(message) === "ar"
+            : langNotify === "ar"
               ? "بانتظار مراجعة الملفات"
               : "Files awaiting review"
-          : detectUserLang(message) === "de"
-            ? "Fertig — Dateien geschrieben"
-            : detectUserLang(message) === "ar"
-              ? "اكتمل — تم كتابة الملفات"
-              : "Done — files written",
+          : wroteSomething
+            ? langNotify === "de"
+              ? "Fertig"
+              : langNotify === "ar"
+                ? "تم"
+                : "Done"
+            : langNotify === "de"
+              ? "Fertig"
+              : langNotify === "ar"
+                ? "تم"
+                : "Done",
         tag: sid,
         onClick: () => selectTab(sid),
       });

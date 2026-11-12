@@ -647,31 +647,36 @@ class MasterConductor:
             except Exception:  # noqa: BLE001
                 pass
             prompt = (
-                "You are Spixa — reply exactly like Cursor Chat: clear, short, human.\n"
+                "You are Spixa — talk like a sharp human teammate in Cursor Chat "
+                "(warm, direct, zero corporate filler).\n"
                 f"Project: {project.name}\n"
                 f"Real workspace files (THEY EXIST): {tree_hint}\n"
                 f"Standing goals/instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"{snippet_block}"
                 f"USER:\n{user_message}\n\n"
-                "REPLY (mandatory — Cursor style):\n"
+                "REPLY (mandatory — human Cursor style):\n"
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
-                "- Show you understood the goal in one short sentence.\n"
-                "- If planning: ONE numbered plan (max 4): سننفذ… / Wir machen… / We'll…\n"
-                "- If editing/coding NOW: emit the FULL file in a ```path fence immediately "
+                "- Sound like a person: short sentences, natural connectors, no robot lists of rules.\n"
+                "- Questions / status / «how does the project look?»: answer in clean prose "
+                "(2–6 sentences or a tidy 1–4 list). NO file fences. NO «files written».\n"
+                "- Planning: ONE short numbered plan (max 4), numbers at the START "
+                "(`1. …`), never at the end, never with stray backticks/dots.\n"
+                "- Editing/coding NOW: emit the FULL file in a ```path fence immediately "
                 "(Spixa applies it). Do not ask the user to open another workspace.\n"
-                "- If they only ask what we can do: 3–5 concrete options from the file list, NO fences.\n"
-                "- End with one short question OR «done».\n"
+                "- End with one natural follow-up question OR «done» — not both a plan dump and chrome.\n"
                 "FORBIDDEN: saying files are missing/unreachable/not in workspace; "
                 "repo/API/teacher/keys/meta; fake/empty fences; double lists; Accept buttons; "
-                "echoing these instructions, Memory hits, scores like (0.23), or system rules.\n"
+                "«✓ N Dateien geschrieben»; echoing these instructions, Memory hits, "
+                "scores like (0.23), or system rules.\n"
             )
             system = (
-                "Professional like Cursor Chat and Claude: calm, precise, senior tone. "
-                "Mirror language. Files listed above ARE the real workspace. "
+                "Talk like Cursor Chat / Claude: calm senior teammate, human and clear. "
+                "Mirror language. Prefer natural paragraphs over stiff bullet walls. "
+                "Files listed above ARE the real workspace. "
                 "Never echo system rules or memory scores. "
-                "Never claim they are missing — emit applyable full-file fences for edits. "
-                "One clear plan, no fluff."
+                "For questions, explain — do not rewrite files. "
+                "For edits, emit applyable full-file fences. No fluff, no chrome."
             )
         else:
             prompt = (

@@ -131,6 +131,23 @@ function parseHashFileSections(reply: string, edits: FileEdit[]) {
   flush();
 }
 
+/** Questions / status asks — never invent or auto-write scaffold files. */
+export function looksLikeExploratoryAsk(message: string): boolean {
+  const t = (message || "").trim();
+  if (!t) return false;
+  if (
+    /[?؟]\s*$/.test(t) ||
+    /^(wie|was|wo|wer|warum|wieso|welch|how|what|where|why|which|who|هل|ما|ماذا|كيف|وين|ليش|لماذا)\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return /(wie sieht|was ist|erzähl|erkl[aä]r|überblick|übersicht|status|stand der|look(?:s)? like|tell me about|explain|overview|وصف|وضع المشروع|شكل المشروع|ايش عندنا)/i.test(
+    t,
+  );
+}
+
 /** If the model dumped filenames but no real bodies, provide a minimal app scaffold. */
 export function ensureBuildEdits(
   reply: string,
@@ -139,6 +156,10 @@ export function ensureBuildEdits(
 ): FileEdit[] {
   // Never invent scaffold files when the teacher failed / key missing
   if (extractProviderError(reply) || /cursor_key_missing|refused_simulate|provider-error/i.test(reply)) {
+    return [];
+  }
+  // Q&A / “how does the project look?” → prose only, never write files
+  if (looksLikeExploratoryAsk(userMessage)) {
     return [];
   }
   const solid = edits.filter((e) => (e.content || "").trim().length > 0 || e.kind === "dir");
@@ -155,9 +176,24 @@ export function ensureBuildEdits(
 
 export function looksLikeBuildAsk(message: string): boolean {
   const t = (message || "").toLowerCase();
-  return /(bau|bauen|build|create|app|anwendung|projekt|موقع|تطبيق|برنامج|أنشئ|ابني|تبني|neues projekt|web\s?app|website)/i.test(
+  // Require an action verb — bare "projekt"/"app" must NOT trigger scaffolds
+  // (otherwise "wie sieht das projekt aus" rewrites 5 identical files).
+  return /(bau(?:en)?|build|create|erstell(?:en)?|mach(?:en)?\s+(?:mir\s+)?(?:eine?\s+)?(?:app|anwendung|website|projekt)|neues\s+projekt|web\s?app|website|scaffold|أنشئ|ابني|تبني|اعمل|سوي)\b/i.test(
     t,
   );
+}
+
+/** Drop edits that would write the exact same bytes already on disk. */
+export function filterNoopEdits(edits: FileEdit[]): FileEdit[] {
+  return (edits || []).filter((e) => {
+    if (e.kind === "dir") return true;
+    if (typeof e.previousContent !== "string") return true;
+    return normalizeForCompare(e.previousContent) !== normalizeForCompare(e.content || "");
+  });
+}
+
+function normalizeForCompare(s: string): string {
+  return (s || "").replace(/\r\n/g, "\n").replace(/\s+$/gm, "").trimEnd();
 }
 
 function looksLikeBrokenFileDump(reply: string): boolean {
@@ -268,6 +304,9 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*file fences with FULL.*$/gim, "")
     .replace(/^.*Ground the plan in the real project tree.*$/gim, "")
     .replace(/^\s*\(\d+\.\d+\)\s*\d*\s*$/gm, "")
+    // Fake write footers / meta chrome
+    .replace(/^\s*✓\s*\d+\s*Datei(?:\(en\))?\s*geschrieben\.?\s*$/gim, "")
+    .replace(/^\s*✓\s*(?:Wrote|تم كتابة).*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -302,6 +341,8 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
   text = collapseRepeats(text);
   // Keep only the first numbered plan when the model dumps two lists.
   text = collapseDuplicateNumberedPlans(text);
+  // Fix RTL/markdown glitches like ". Frontend … 1" → "1. Frontend …"
+  text = tidyHumanProse(text);
 
   // Never replace a real provider failure with a canned “Klar / حسناً” plan.
   const providerErr = extractProviderError(reply);
@@ -319,6 +360,32 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     text = colleaguePlanReply(userMessage, edits);
   }
   return text;
+}
+
+/** Clean glitched list markers so the bubble reads like a normal chat reply. */
+function tidyHumanProse(text: string): string {
+  const lines = (text || "").split(/\r?\n/);
+  const out: string[] = [];
+  for (let line of lines) {
+    let s = line
+      // stray fence crumbs: `. Frontend` / `.* /Backend`
+      .replace(/^\s*[.`*•]+\s*/g, "")
+      .replace(/^\s*`+\s*/g, "")
+      .replace(/\s*`+\s*$/g, "");
+    // Number stuck at end: "Frontend: … 1" → "1. Frontend: …"
+    const tailNum = s.match(/^(.*\S)\s+(\d{1,2})\s*$/);
+    if (tailNum && !/^\d+[.)]/.test(s) && tailNum[1].length < 120) {
+      s = `${tailNum[2]}. ${tailNum[1].trim()}`;
+    }
+    // Normalize "1) foo" / "1 - foo"
+    s = s.replace(/^\s*(\d{1,2})\s*[)\]\-–—:]\s+/, "$1. ");
+    out.push(s);
+  }
+  return out
+    .join("\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function extractProviderError(raw: string): string | null {
@@ -403,54 +470,55 @@ export function looksLikePromptLeak(text: string): boolean {
 export function colleaguePlanReply(userMessage: string, edits: FileEdit[] = []): string {
   const lang = detectUserLang(userMessage);
   const n = edits.length;
+  const exploratory = looksLikeExploratoryAsk(userMessage);
   const continueAsk = looksLikeContinueAsk(userMessage);
   const planAsk = looksLikePlanAsk(userMessage);
   if (lang === "de") {
+    if (exploratory) {
+      return "Kurz: ich schaue mir den Stand an und sage dir klar, was schon da ist und was als Nächstes Sinn macht. Was interessiert dich zuerst — Struktur, UI oder Backend?";
+    }
     if (planAsk && !continueAsk) {
       return [
-        "Verstanden — so gehen wir vor:",
-        "1) Offene Dateien kurz prüfen",
-        "2) Die wichtigste Änderung umsetzen",
-        "3) Kurz prüfen",
-        n ? `Ich setze das jetzt um (${n} Datei(en)).` : "Welche der drei Schritte zuerst?",
+        "Alles klar — so würde ich es angehen:",
+        "1. Kurz den Ist-Stand checken",
+        "2. Die wichtigste Änderung machen",
+        "3. Kurz gegenprüfen",
+        n ? `Ich setze das jetzt um (${n} Datei(en)).` : "Womit sollen wir starten?",
       ].join("\n");
     }
     return [
-      "Verstanden — wir machen weiter.",
-      "1) Nächsten konkreten Schritt umsetzen",
-      "2) Kurz prüfen",
+      "Alles klar — legen wir los.",
       n
-        ? `Ich schreibe jetzt ${n} Datei(en).`
-        : "Sag mir den nächsten Schritt in einem Satz.",
+        ? `Ich schreibe jetzt ${n} Datei(en) und erklär dir danach kurz, was sich geändert hat.`
+        : "Sag mir in einem Satz den nächsten Schritt, dann setze ich ihn um.",
     ].join("\n");
   }
   if (lang === "ar") {
+    if (exploratory) {
+      return "تمام — أشرح لك الوضع الحالي باختصار: شو موجود، وشو أفضل خطوة بعدها. تبي الهيكل، الواجهة، ولا الـ Backend أول؟";
+    }
     if (planAsk && !continueAsk) {
       return [
-        "حسناً — هذه الخطة:",
-        "1) مراجعة الملفات المفتوحة",
-        "2) تحسينات صغيرة وآمنة",
-        "3) توثيق سريع",
-        n ? `أبدأ التنفيذ الآن (${n} ملف).` : "قل لي لأبدأ التنفيذ.",
+        "تمام — الخطة ببساطة:",
+        "1. نشوف الوضع الحالي",
+        "2. نسوي أهم تعديل",
+        "3. نتأكد بسرعة",
+        n ? `أبدأ الآن (${n} ملف).` : "من وين تبي نبدأ؟",
       ].join("\n");
     }
     return [
-      "حسناً — نكمل التطوير.",
-      "الخطة:",
-      "1) تحسين الواجهة والمنطق",
-      "2) إكمال النواقص",
-      "3) تحديث التوثيق",
-      n ? `أبدأ الآن وأكتب ${n} ملف.` : "أبدأ الآن بأهم جزء.",
+      "تمام — نكمل.",
+      n
+        ? `أكتب الآن ${n} ملف وبعدها ألخّص لك التغيير.`
+        : "قل لي الخطوة الجاية بجملة، وأنفذها.",
     ].join("\n");
   }
-  return [
-    "Got it — continuing development.",
-    "Plan:",
-    "1) Tighten current app files",
-    "2) Fill gaps",
-    "3) Update docs",
-    n ? `Starting now — writing ${n} file(s).` : "Starting with the most important part.",
-  ].join("\n");
+  if (exploratory) {
+    return "Happy to walk you through where things stand — what's already solid, and what I'd tackle next. Structure, UI, or backend first?";
+  }
+  return n
+    ? `Got it — I'll write ${n} file(s) now and then briefly say what changed.`
+    : "Got it — tell me the next step in one sentence and I'll do it.";
 }
 
 export function looksLikeContinueAsk(message: string): boolean {

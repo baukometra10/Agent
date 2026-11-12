@@ -132,13 +132,21 @@ export function AgentEditReview({
     };
   }, [projectId, editKey, edits, applied]);
 
+  // Hide no-op cards (+0 −0 identical) — they feel robotic vs Cursor
+  const visible = previews.filter(
+    (p) => p.kind === "dir" || p.isNew || p.adds > 0 || p.dels > 0,
+  );
+
   if (!edits.length) return null;
+  if (!loading && visible.length === 0) return null;
 
   return (
     <div className={`ide-agent__review${applied ? " is-applied" : ""}`}>
       <header>
         <strong dir="ltr">
-          {applied ? `Wrote ${edits.length}` : `Review ${edits.length}`}
+          {applied
+            ? `Changed ${visible.length || edits.length}`
+            : `Review ${visible.length || edits.length}`}
         </strong>
         {!applied ? (
           <>
@@ -153,7 +161,7 @@ export function AgentEditReview({
       </header>
       {loading ? <p className="ide-agent__diff-loading">جارٍ تجهيز الفروقات…</p> : null}
       <div className="ide-agent__diff-list">
-        {previews.map((p) => (
+        {(loading ? previews : visible).map((p) => (
           <section key={p.path} className="ide-agent__diff-card">
             <div className="ide-agent__diff-head">
               <button
