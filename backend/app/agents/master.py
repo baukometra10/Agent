@@ -567,24 +567,27 @@ class MasterConductor:
         tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
         if ide_coding:
             prompt = (
-                "You are Spixa — answer like Cursor Chat: klar, kurz, menschlich.\n"
+                "You are Spixa — Cursor-clear partner: understand goal, then act.\n"
                 f"Project: {project.name}\n"
-                f"Workspace files (hint): {tree_hint}\n"
-                f"Standing instructions: {standing_txt or '(none)'}\n"
+                f"Workspace files (use these — propose from reality): {tree_hint}\n"
+                f"Standing goals/instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"USER:\n{user_message}\n\n"
                 "REPLY (mandatory):\n"
-                "- ONLY the user's language.\n"
-                "- 1 confirmation sentence.\n"
-                "- 1 numbered plan (max 4): Wir machen… / سننفذ… / We'll…\n"
+                "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
+                "- First: show you understood what they want NOW and where they want to go.\n"
+                "- If a project exists: plan from its files; propose developments + how we build.\n"
+                "- If empty: propose a concrete build path (structure → first feature → next).\n"
+                "- 1 numbered plan (max 4): سننفذ… / Wir machen… / We'll…\n"
                 "- If coding now: real full-file fences only (no empty/placeholder fences).\n"
-                "- If they only ask what we can do: 3–5 concrete options, NO file fences.\n"
-                "- End with one short line.\n"
-                "FORBIDDEN: repo/API/teacher/meta talk; fake ```README.md; double lists; "
+                "- If they only ask what we can do: 3–5 concrete options from THIS workspace, NO fences.\n"
+                "- Stay in dialogue — one short closing question.\n"
+                "FORBIDDEN: repo/API/teacher/meta; fake ```README.md; double lists; "
                 "Accept buttons; claiming merges happened.\n"
             )
             system = (
-                "Cursor-clear. Mirror language. One plan, no fluff, no fake file blocks. "
+                "Understand the user's goal. Mirror their language. "
+                "Plan from the real project tree. One clear plan, no fluff, no fake file blocks. "
                 "Never mention unreachable repos, keys, or simulation."
             )
         else:
@@ -602,14 +605,15 @@ class MasterConductor:
                 f"Critic: {critic_txt}\n"
                 f"{engine_txt}"
                 f"Proposal drafted: {proposal}\n"
-                "Reply ONLY in the user's language. "
-                "Open with what we understood, then a numbered plan of what we will do next "
+                "Reply ONLY in the user's chat language. "
+                "Open with the goal you understood (what they want to reach), "
+                "then a numbered plan from THIS project's reality "
                 "(سننفذ / Wir machen / We'll do). Be direct and concrete. "
                 "Never claim code was merged. Never mix this project's memory with another."
             )
             system = (
-                "Clear, decisive Cursor-chat tone. Mirror language. "
-                "Lead with what we will do. Retain every user instruction for THIS project only."
+                "Clear Cursor-chat tone. Mirror language. Understand the destination. "
+                "Lead with what we will do for THIS project only."
             )
         response = await self.gateway.complete(
             ModelRole.coding if ide_coding else ModelRole.reasoning,

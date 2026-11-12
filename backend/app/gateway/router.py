@@ -453,6 +453,8 @@ class ModelGateway:
                 **meta,
                 "distill": True,
                 "selective_distill": True,
+                # Successful teacher turn under Master/chat gate = verified student fuel
+                "tools_ok": bool(meta.get("tools_ok") or learn_all),
                 "source": meta.get("source")
                 or ("bootstrap_teacher" if meta.get("bootstrap_teacher") else "teacher_turn"),
             },

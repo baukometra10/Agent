@@ -24,7 +24,12 @@ from app.knowledge.memory import MEMORY_LAYERS
 from app.security.isolation import assert_path_inside_workspace
 
 REMEMBER_HINT = re.compile(
-    r"\b(remember|always|must|never forget|احفظ|تذكّر|تذكر|دائمًا|دائما|لا تنسَ|لا تنس)\b",
+    r"("
+    r"\b(remember|always|must|never forget|goal|ziel|target|destination|roadmap)\b|"
+    r"احفظ|تذكّر|تذكر|دائمًا|دائما|لا تنسَ|لا تنس|"
+    r"أريد أن|اريد ان|هدفي|الهدف|أوصل إلى|اوصل الى|نصل إلى|نصل الى|"
+    r"\b(ich will|ich möchte|ziel ist|wir sollen)\b"
+    r")",
     re.IGNORECASE,
 )
 
