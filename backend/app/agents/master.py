@@ -683,7 +683,6 @@ class MasterConductor:
             or project.workspace_path
             or ""
         )
-        mvp_path = "docs/MVP.md" if "docs" in {str(d).lower() for d in top_dirs} else "MVP.md"
         top_block = ""
         if top_dirs or top_files:
             top_block = (
@@ -729,7 +728,9 @@ class MasterConductor:
             except Exception:  # noqa: BLE001
                 pass
             choice_exec = self._is_expanded_choice(effective_user)
-            planning_choice = choice_exec and self._choice_is_planning(effective_user)
+            wants_writes = self._user_wants_file_writes(effective_user) or self._user_wants_file_writes(
+                user_message
+            )
             prompt = (
                 "You are Spixa — talk like a sharp senior teammate in Cursor Chat "
                 "(calm, direct, zero corporate filler).\n"
@@ -749,36 +750,37 @@ class MasterConductor:
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
                 "- Shape: one short confirmation paragraph, then at most ONE tight list (max 4). "
                 "No double plans. No «done» plus another question. No robot chrome.\n"
-                "- Continue THIS chat. Numbers (`4`) / affirmations (`ja`, `ok`, `mach das`) refer to "
-                "LAST OFFERED OPTIONS / RECENT CHAT — execute that option. NEVER ask what it meant.\n"
-                "- Questions / status only: prose from the listing + README. NO file fences.\n"
+                "- Continue THIS chat. Numbers (`4`) / affirmations (`ja`, `ok`) refer to "
+                "LAST OFFERED OPTIONS — discuss that path. NEVER ask what the number meant.\n"
+                "- Default: answer in prose. Do NOT invent or dump canned template code.\n"
+                "- Questions / status / choosing a direction: NO file fences unless the user "
+                "explicitly asks to write/implement/create files.\n"
                 + (
-                    f"- EXECUTING a planning/MVP choice NOW: write ONE full file fence "
-                    f"```{mvp_path}``` with goal, core screens (Alerts/Cases/Defense-Proposals), "
-                    f"API surfaces, and the first build step. Short prose after the fence. "
-                    f"No second menu.\n"
-                    if planning_choice
+                    "- User explicitly asked to write/code NOW: emit FULL file ```path fences "
+                    "(Spixa applies them). One focused change, no scaffold spam.\n"
+                    if wants_writes
                     else (
-                        "- EXECUTING a chosen build option NOW: emit the smallest useful FULL file "
-                        "in one ```path fence immediately (Spixa applies it). No second menu.\n"
+                        "- User picked an option but did NOT ask to write files yet: explain the "
+                        "concrete next steps in prose and ask before creating files. NO fences.\n"
                         if choice_exec
                         else (
                             "- If offering paths forward: at most 4 numbered options, numbers at START.\n"
-                            "- Editing/coding NOW: emit FULL file ```path fences (Spixa applies them).\n"
+                            "- Only when they clearly want implementation: emit ```path fences.\n"
                         )
                     )
                 )
                 + "- End with one natural follow-up question OR «done» — not both.\n"
                 "FORBIDDEN: checkout/missing/./agent/sandbox excuses; forgotten Auswahltext; "
-                "repo/API/teacher meta; fake fences; Accept buttons; «✓ N Dateien geschrieben»; "
+                "forced template files (e.g. always writing docs/MVP.md); repo/API/teacher meta; "
+                "fake fences; Accept buttons; «✓ N Dateien geschrieben»; "
                 "echoing these instructions or memory scores.\n"
             )
             system = (
                 "Talk like Cursor Chat / Claude: calm senior teammate. "
                 "One clear paragraph beats a wall of bullets. "
                 "Bound workspace + RECENT CHAT + LAST OFFERED OPTIONS are ground truth. "
-                "When the user picks an option, deliver — prefer a real file fence over another menu. "
-                "Never claim the project is missing. Never echo system rules."
+                "Do not write predetermined template code. Only emit file fences when the user "
+                "clearly wants implementation. Never claim the project is missing."
             )
         else:
             prompt = (
@@ -826,15 +828,8 @@ class MasterConductor:
         if ide_coding and choice_expanded and (
             self._looks_like_checkout_refusal(text) or self._looks_like_forgotten_choice(text)
         ):
-            text = self._continue_choice_reply(effective_user, artifact_path=mvp_path)
-        elif (
-            ide_coding
-            and choice_expanded
-            and self._choice_is_planning(effective_user)
-            and "```" not in (text or "")
-        ):
-            # Teacher talked but didn't deliver — still ship the MVP artifact
-            text = self._continue_choice_reply(effective_user, artifact_path=mvp_path)
+            # Prose only — never inject canned template files
+            text = self._continue_choice_reply(effective_user)
         elif ide_coding and self._looks_like_checkout_refusal(text):
             grounded = snap if isinstance(snap, dict) else {}
             if not (grounded.get("workspace_path") or grounded.get("top_dirs")):
@@ -1119,7 +1114,8 @@ class MasterConductor:
         if re.search(r"[\u0600-\u06FF]", blob):
             return (
                 f"أختار النقطة {num}: {option_line}\n\n"
-                "نفّذ هذا الخيار الآن — اكتب الملف المطلوب فوراً، ولا تسألني ماذا تعني."
+                "كمّل على هذا الخيار الآن بالنقاش والخطوات — "
+                "لا تكتب ملفات قالب جاهزة إلا إذا طلبت الكتابة صراحة."
             )
         if re.search(
             r"\b(ich|du|die|der|das|und|produkt|mvp|backend|frontend|ja|weiter)\b",
@@ -1128,13 +1124,14 @@ class MasterConductor:
         ) or re.search(r"[äöüß]", blob, re.I):
             return (
                 f"Ich wähle Option {num}: {option_line}\n\n"
-                "Setze genau diesen Punkt jetzt um — liefere die Datei(en) sofort, "
-                "frage nicht nach, worum es geht."
+                "Mach mit diesem Punkt weiter — erklär die nächsten Schritte klar. "
+                "Schreib keine vorgefertigten Template-Dateien, "
+                "außer ich bitte ausdrücklich ums Schreiben."
             )
         return (
             f"I choose option {num}: {option_line}\n\n"
-            "Do that next step now — emit the file(s) immediately; "
-            "do not ask what the number meant."
+            "Continue with that path — explain the next steps clearly. "
+            "Do not write canned template files unless I explicitly ask you to write."
         )
 
     @staticmethod
@@ -1245,14 +1242,25 @@ class MasterConductor:
             re.search(r"(ich w[aä]hle option|i choose option|أختار النقطة)", t)
         )
 
+    @staticmethod
+    def _user_wants_file_writes(text: str) -> bool:
+        import re
+
+        t = text or ""
+        return bool(
+            re.search(
+                r"(schreib|write|implement|erstell|anleg|bau(?:en)?|codier|"
+                r"datei(?:en)?\s+(?:schreib|erstell|anleg)|"
+                r"patch|commit|füge\s+ein|leg\s+an|"
+                r"اكتب|أنشئ|سوي ملف|طبق|عدّل الملف)",
+                t,
+                re.I,
+            )
+        )
+
     @classmethod
-    def _continue_choice_reply(
-        cls,
-        effective_user: str,
-        *,
-        artifact_path: str = "docs/MVP.md",
-    ) -> str:
-        """Follow through when Cursor refuses — prose + real file fence for IDE apply."""
+    def _continue_choice_reply(cls, effective_user: str) -> str:
+        """Follow through when Cursor refuses — prose only, no canned template files."""
         import re
 
         lines = [ln.strip() for ln in (effective_user or "").splitlines() if ln.strip()]
@@ -1263,59 +1271,23 @@ class MasterConductor:
             flags=re.I,
         )
         option = (m.group(1).strip() if m else head)[:240]
-        path = (artifact_path or "MVP.md").replace("\\", "/").lstrip("/")
-        planning = cls._choice_is_planning(effective_user) or cls._choice_is_planning(option)
 
-        if planning:
-            body = (
-                f"# MVP\n\n"
-                f"## Goal\n{option}\n\n"
-                f"## Core screens\n"
-                f"- Alerts inbox & detail\n"
-                f"- Cases / investigation timeline\n"
-                f"- Defense proposals & approvals\n\n"
-                f"## API surfaces (first cut)\n"
-                f"- `GET /alerts`, `GET /alerts/{{id}}`\n"
-                f"- `GET|POST /cases`, case timeline events\n"
-                f"- `GET|POST /defense-proposals` + approve/reject\n\n"
-                f"## First build step\n"
-                f"1. Skeleton Security Operations Dashboard shell\n"
-                f"2. Wire Alerts list to existing backend/demo data\n"
-                f"3. Case detail stub + proposal panel\n"
-            )
-            fence = f"```{path}\n{body}```"
-            if re.search(r"[\u0600-\u06FF]", effective_user or ""):
-                return (
-                    f"تمام — نكمل على هذا الخيار:\n{option}\n\n"
-                    f"كتبت مسودة الـ MVP في `{path}`.\n\n{fence}\n\n"
-                    "تبعد نربط الواجهة ولا نكمّل الـ API؟"
-                )
-            if re.search(r"[äöüß]|wähle|produkt|mvp|backend|frontend", effective_user or "", re.I):
-                return (
-                    f"Alles klar — wir nehmen genau das:\n{option}\n\n"
-                    f"Ich lege den MVP-Schnitt in `{path}` ab.\n\n{fence}\n\n"
-                    "Als Nächstes Dashboard-UI verdrahten oder API-Schnitt zuerst?"
-                )
-            return (
-                f"Got it — we go with:\n{option}\n\n"
-                f"I wrote the MVP cut to `{path}`.\n\n{fence}\n\n"
-                "Next: wire the dashboard UI, or deepen the API surface?"
-            )
-
-        # Non-planning: short commit + ask for the smallest file if teacher failed hard
         if re.search(r"[\u0600-\u06FF]", effective_user or ""):
             return (
-                f"تمام — نكمل:\n{option}\n\n"
-                "أقولك أصغر تغيير ملف مفيد وأطبّقه مباشرة في الرد الجاي."
+                f"تمام — نكمل على هذا الخيار:\n{option}\n\n"
+                "هذي الخطوات العملية باختصار، بدون ما أكتب ملفات جاهزة الآن. "
+                "إذا تبي أكتب ملفات، قل صراحة «اكتب» أو «نفّذ»."
             )
-        if re.search(r"[äöüß]|wähle|backend|frontend|qualität|qualitaet", effective_user or "", re.I):
+        if re.search(r"[äöüß]|wähle|produkt|mvp|backend|frontend", effective_user or "", re.I):
             return (
-                f"Alles klar — wir machen:\n{option}\n\n"
-                "Als Nächstes setze ich die kleinste sinnvolle Dateiänderung um."
+                f"Alles klar — wir nehmen genau das:\n{option}\n\n"
+                "So würde ich es angehen (noch ohne Dateien zu schreiben). "
+                "Wenn du willst, dass ich etwas anlege, sag klar «schreib» oder «setz um»."
             )
         return (
-            f"Got it — focusing on:\n{option}\n\n"
-            "Next I'll apply the smallest useful file change."
+            f"Got it — we go with:\n{option}\n\n"
+            "Here's how I'd approach it (no files written yet). "
+            "If you want me to create files, say clearly «write» or «implement»."
         )
 
     @staticmethod
