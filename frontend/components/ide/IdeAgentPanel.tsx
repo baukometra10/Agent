@@ -275,7 +275,8 @@ const SCAFFOLD_RULES =
   "3) If coding now: real full-file fences only.\n" +
   "4) One short closing question — stay in dialogue.\n" +
   "If they only ask what we can do: 3–5 concrete options from THIS workspace, no fences.\n" +
-  "FORBIDDEN: empty/fake fences; double lists; repo/API/teacher/keys/meta; agent names/scores.\n" +
+  "FORBIDDEN: empty/fake fences; double lists; repo/API/teacher/keys/meta; agent names/scores; "
+  + "saying files are missing/unreachable (listed tree files EXIST — emit fences; IDE applies).\n" +
   "File format when coding:\n```path/to/file.ext\\n...full content...\\n```";
 
 const MODE_HINT: Record<AgentMode, string> = {

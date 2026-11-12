@@ -564,31 +564,46 @@ class MasterConductor:
             f"- ({h.get('score')}) {str(h.get('text') or '')[:200]}" for h in semantic_hits
         )
         tree = context.get("files") or {}
-        tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
+        file_names = tree.get("files") or tree.get("paths") or []
+        if isinstance(file_names, list):
+            tree_hint = ", ".join(str(p) for p in file_names[:60]) or "(empty workspace)"
+        else:
+            tree_hint = str(tree.get("entries") or tree)[:1200]
+        snippet = context.get("file_snippet") if isinstance(context.get("file_snippet"), dict) else None
+        snippet_block = ""
+        if snippet and snippet.get("content") and not snippet.get("error"):
+            spath = str(snippet.get("path") or context.get("path_hint") or "file")
+            snippet_block = (
+                f"\nCURRENT FILE `{spath}` (edit from this — Spixa IDE will apply your fence):\n"
+                f"```{spath}\n{str(snippet.get('content'))[:8000]}\n```\n"
+            )
+        elif context.get("path_hint"):
+            # Still tell the model the target path even if read failed
+            snippet_block = f"\nTarget file path: {context.get('path_hint')}\n"
         if ide_coding:
             prompt = (
-                "You are Spixa — Cursor-clear partner: understand goal, then act.\n"
+                "You are Spixa — reply exactly like Cursor Chat: clear, short, human.\n"
                 f"Project: {project.name}\n"
-                f"Workspace files (use these — propose from reality): {tree_hint}\n"
+                f"Real workspace files (THEY EXIST): {tree_hint}\n"
                 f"Standing goals/instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
+                f"{snippet_block}"
                 f"USER:\n{user_message}\n\n"
-                "REPLY (mandatory):\n"
+                "REPLY (mandatory — Cursor style):\n"
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
-                "- First: show you understood what they want NOW and where they want to go.\n"
-                "- If a project exists: plan from its files; propose developments + how we build.\n"
-                "- If empty: propose a concrete build path (structure → first feature → next).\n"
-                "- 1 numbered plan (max 4): سننفذ… / Wir machen… / We'll…\n"
-                "- If coding now: real full-file fences only (no empty/placeholder fences).\n"
-                "- If they only ask what we can do: 3–5 concrete options from THIS workspace, NO fences.\n"
-                "- Stay in dialogue — one short closing question.\n"
-                "FORBIDDEN: repo/API/teacher/meta; fake ```README.md; double lists; "
-                "Accept buttons; claiming merges happened.\n"
+                "- Show you understood the goal in one short sentence.\n"
+                "- If planning: ONE numbered plan (max 4): سننفذ… / Wir machen… / We'll…\n"
+                "- If editing/coding NOW: emit the FULL file in a ```path fence immediately "
+                "(Spixa applies it). Do not ask the user to open another workspace.\n"
+                "- If they only ask what we can do: 3–5 concrete options from the file list, NO fences.\n"
+                "- End with one short question OR «done».\n"
+                "FORBIDDEN: saying files are missing/unreachable/not in workspace; "
+                "repo/API/teacher/keys/meta; fake/empty fences; double lists; Accept buttons.\n"
             )
             system = (
-                "Understand the user's goal. Mirror their language. "
-                "Plan from the real project tree. One clear plan, no fluff, no fake file blocks. "
-                "Never mention unreachable repos, keys, or simulation."
+                "Cursor Chat style. Mirror language. Files listed above ARE the real workspace. "
+                "Never claim they are missing — emit applyable full-file fences for edits. "
+                "One clear plan, no fluff."
             )
         else:
             prompt = (

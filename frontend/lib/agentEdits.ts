@@ -251,6 +251,8 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*Never mix this project's memory.*$/gim, "")
     // Cloud/teacher meta that confuses the user
     .replace(/^.*(?:nicht erreichbar|unreachable|repository|source control|missing_.*_key|simulated:).*$/gim, "")
+    .replace(/^.*(?:not present in the available workspace|can'?t edit it here|cannot edit it here).*$/gim, "")
+    .replace(/^.*(?:start this agent from the workspace|available workspace).*$/gim, "")
     .replace(/^.*Noch keine Dateiänderung.*$/gim, "")
     .replace(/^.*Sag mir, welche Aufgabe.*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
