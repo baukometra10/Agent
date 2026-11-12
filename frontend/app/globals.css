@@ -6506,6 +6506,13 @@ body.ide-resizing .ide-sash::after {
   display: grid;
   gap: 0.7rem;
   align-content: start;
+  scroll-behavior: auto;
+}
+
+.ide-agent__thread-end {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
 }
 
 .ide-agent__welcome {

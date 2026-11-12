@@ -250,22 +250,26 @@ type Props = {
 };
 
 const SCAFFOLD_RULES =
-  "You are Spixa — Cursor-class IDE colleague. The user sees only your clean reply.\n" +
-  "LANGUAGE (mandatory): Reply ONLY in the user's language. If they write German, every sentence is German.\n" +
-  "Conversation style:\n" +
-  "- First: acknowledge like a person (e.g. DE: \"Klar — wir machen weiter.\").\n" +
-  "- Then: short numbered plan (2–4 steps) when they ask to continue/develop/plan.\n" +
-  "- Then: implement immediately with file blocks in the SAME turn.\n" +
+  "You are Spixa — talk exactly like Cursor Chat: clear, human, direct.\n" +
+  "LANGUAGE (absolute): Detect the user message language and reply ONLY in that language.\n" +
+  "Arabic → Arabic. German → German. English → English. Never mix, never default to English.\n" +
+  "CLARITY (mandatory):\n" +
+  "- Open with a plain confirmation of what they asked.\n" +
+  "- Then a short numbered plan of what WE WILL DO now (AR: سننفذ / سنعمل, DE: Wir machen / Als Nächstes, EN: We'll do).\n" +
+  "- Be concrete: name files/steps, no vague filler, no agent names, no scores.\n" +
+  "- If they asked for a project/feature/fix: say what we will build, then start.\n" +
+  "- In agent mode: after the plan, implement in the SAME turn with file fences.\n" +
   "- Files auto-apply — never ask Accept/Approve.\n" +
-  "- If they explicitly ask for a plan only (Plan/خطة/Planung) without coding yet: give the plan in their language and stop before files unless they also asked to implement.\n" +
+  "- Plan-only asks (Plan/خطة/Planung) without coding: plan in their language, no files yet.\n" +
   "File format STRICT:\n" +
   "```path/to/file.ext\\n...full content...\\n```\n" +
   "Never: `###`, bare `python ```, `# README.md` lists, `# spixa_edit`, absolute Windows paths.";
 
 const MODE_HINT: Record<AgentMode, string> = {
-  agent: "Mode=agent: mirror language → short plan → implement with file blocks now.",
-  ask: "Mode=ask: explain/plan in the user's language; no file blocks unless they ask.",
-  edit: "Mode=edit: smallest correct change on open/attached files; reply in their language.",
+  agent:
+    "Mode=agent: same language as user → clear «we'll do X» plan → implement with file blocks now.",
+  ask: "Mode=ask: clear explanation/plan in the user's language; no file blocks unless they ask.",
+  edit: "Mode=edit: smallest correct change; explain briefly in their language first.",
 };
 
 const FALLBACK_CHIEFS: ChiefModel[] = [
@@ -332,6 +336,8 @@ export function IdeAgentPanel({
   const [dragTabId, setDragTabId] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
   const modeBtnRef = useRef<HTMLButtonElement>(null);
   const chiefBtnRef = useRef<HTMLButtonElement>(null);
   const creatingTabRef = useRef(false);
@@ -341,6 +347,24 @@ export function IdeAgentPanel({
   const textRef = useRef(text);
   const speechBaseRef = useRef("");
   textRef.current = text;
+
+  const scrollThreadToEnd = useCallback((smooth = false) => {
+    const run = () => {
+      const end = threadEndRef.current;
+      const thread = threadRef.current;
+      if (end) {
+        end.scrollIntoView({ block: "end", behavior: smooth ? "smooth" : "auto" });
+      }
+      if (thread) {
+        thread.scrollTop = thread.scrollHeight;
+      }
+    };
+    requestAnimationFrame(() => {
+      run();
+      // Second pass after layout (images/review blocks / late message patch)
+      window.setTimeout(run, 40);
+    });
+  }, []);
 
   function placeMenuAbove(btn: HTMLButtonElement | null) {
     if (!btn || typeof window === "undefined") return;
@@ -374,6 +398,13 @@ export function IdeAgentPanel({
   const msgs = activeTabId ? msgsByTab[activeTabId] || [] : [];
   const activeTab = tabs.find((t) => t.id === activeTabId) || null;
   const activeBusy = Boolean(activeTabId && busyByTab[activeTabId]);
+  const lastMsg = msgs[msgs.length - 1];
+  const lastMsgSig = `${msgs.length}:${lastMsg?.role || ""}:${lastMsg?.streaming ? 1 : 0}:${(lastMsg?.text || "").length}`;
+
+  useEffect(() => {
+    // Cursor-like: always land on the latest message when opening/switching/updating chat
+    scrollThreadToEnd(false);
+  }, [activeTabId, lastMsgSig, scrollThreadToEnd]);
 
   function setTabBusy(id: string, on: boolean) {
     setBusyByTab((prev) => {
@@ -2071,7 +2102,7 @@ export function IdeAgentPanel({
         </div>
       ) : null}
 
-      <div className="ide-agent__thread">
+      <div className="ide-agent__thread" ref={threadRef}>
         {msgs.map((m, i) => {
           const priorUser =
             m.role === "assistant"
@@ -2141,6 +2172,7 @@ export function IdeAgentPanel({
           </div>
           );
         })}
+        <div ref={threadEndRef} className="ide-agent__thread-end" aria-hidden />
       </div>
 
       {error ? <p className="ide-banner">{error}</p> : null}

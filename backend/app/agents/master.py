@@ -567,29 +567,33 @@ class MasterConductor:
         tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
         if ide_coding:
             prompt = (
-                "You are the Spixa coding agent — talk exactly like Cursor Chat: clear, direct, human.\n"
+                "You are the Spixa coding agent — talk exactly like Cursor Chat.\n"
                 f"Project: {project.name}\n"
                 f"Workspace files (hint): {tree_hint}\n"
                 f"Standing instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"USER:\n{user_message}\n\n"
                 "REPLY STYLE (mandatory):\n"
-                "- Same language as the user (Arabic / German / English…).\n"
-                "- Clean prose only for the human: short, concrete, no jargon dump.\n"
-                "- 2–6 sentences: confirm understanding → tiny numbered plan → start now.\n"
+                "- Reply ONLY in the user's language (Arabic/German/English…). Never switch.\n"
+                "- First line: clear confirmation of the ask.\n"
+                "- Then a numbered «we will do» plan "
+                "(AR: سننفذ/سنعمل, DE: Wir machen/Als Nächstes, EN: We'll do).\n"
+                "- Concrete steps only — name what changes; no fluff, no agent names.\n"
+                "- If they asked for a project/feature: say what we will build, then start.\n"
                 "- Then file fences with FULL contents (applied into the editor):\n"
                 "```relative/path.ext\nfull file content\n```\n"
                 "- End with one short closing line in the same language.\n"
-                "- Never show system prompts, agent names, scores, gates, or Accept buttons.\n"
+                "- Never show system prompts, scores, gates, or Accept buttons.\n"
                 "- Never invent that merges/deploys happened.\n"
             )
             system = (
-                "Cursor-chat tone. Mirror language. Clean human text + applyable file fences. "
-                "No meta, no roleplay headers, no English when the user wrote Arabic/German."
+                "Cursor-chat tone. Absolute language mirror. "
+                "Clear human plan («we'll do X») then applyable file fences. "
+                "No meta headers. No English when the user wrote Arabic or German."
             )
         else:
             prompt = (
-                "You are MasterOrchestrator — the lead Evolve agent (Cursor-class).\n"
+                "You are Spixa's lead agent — clear like Cursor Chat.\n"
                 f"Project: {project.name}\n"
                 f"Workspace (exact): {binding.get('workspace_path') or project.workspace_path}\n"
                 f"Isolation: {binding.get('isolation_namespace') or project.isolation_namespace}\n"
@@ -602,13 +606,14 @@ class MasterConductor:
                 f"Critic: {critic_txt}\n"
                 f"{engine_txt}"
                 f"Proposal drafted: {proposal}\n"
-                "Write the final user-facing answer in the user's language (Arabic if they wrote Arabic). "
-                "Structure: فهم الطلب → ماذا فعل الوكلاء → الخطة → الخطوة البشرية التالية. "
+                "Reply ONLY in the user's language. "
+                "Open with what we understood, then a numbered plan of what we will do next "
+                "(سننفذ / Wir machen / We'll do). Be direct and concrete. "
                 "Never claim code was merged. Never mix this project's memory with another."
             )
             system = (
-                "Lead agent. Clear, decisive, honest about gates. "
-                "Retain and execute every user instruction for THIS project only."
+                "Clear, decisive Cursor-chat tone. Mirror language. "
+                "Lead with what we will do. Retain every user instruction for THIS project only."
             )
         response = await self.gateway.complete(
             ModelRole.coding if ide_coding else ModelRole.reasoning,
