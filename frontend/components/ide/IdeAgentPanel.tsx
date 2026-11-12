@@ -171,13 +171,26 @@ function forgetLocalArchive(projectId: string, id: string) {
   );
 }
 
-function routeLabel(tier: string | null | undefined, simulated?: boolean): { text: string; kind: string } {
+function routeLabel(
+  tier: string | null | undefined,
+  simulated?: boolean,
+  model?: string | null,
+): { text: string; kind: string } {
   if (simulated) return { text: "Sim", kind: "sim" };
+  const m = (model || "").toLowerCase();
+  if (m.includes("cursor")) return { text: "Cursor", kind: "teacher" };
   const t = (tier || "").toLowerCase();
   if (t === "internal" || t === "cache") return { text: "Owned", kind: "owned" };
   if (t === "teacher") return { text: "Teacher", kind: "teacher" };
   if (t === "simulate") return { text: "Sim", kind: "sim" };
   return { text: "Auto", kind: "auto" };
+}
+
+function formatRouteModel(model?: string | null): string {
+  const m = (model || "").trim();
+  if (!m) return "";
+  if (m.toLowerCase().includes("cursor")) return "Cursor Cloud Agent";
+  return m;
 }
 
 const UI_LANG = {
@@ -1628,7 +1641,7 @@ export function IdeAgentPanel({
       setBudgetByTab((prev) => ({ ...prev, [sid]: nextBudget }));
 
       await spendTokens(1, "ide_chat");
-      const route = routeLabel(routeTier, simulated);
+      const route = routeLabel(routeTier, simulated, modelId);
       const tabTitle = shortTitle(serverTitle || topic);
       let finalDisplay = display;
       let appliedEdits = edits;
@@ -1798,10 +1811,10 @@ export function IdeAgentPanel({
         <div className="ide-agent__meta">
           {lastRoute.tier || lastRoute.simulated ? (
             <span
-              className={`ide-agent__route is-${routeLabel(lastRoute.tier, lastRoute.simulated).kind}`}
+              className={`ide-agent__route is-${routeLabel(lastRoute.tier, lastRoute.simulated, lastRoute.model).kind}`}
               title={lastRoute.model || undefined}
             >
-              {routeLabel(lastRoute.tier, lastRoute.simulated).text}
+              {routeLabel(lastRoute.tier, lastRoute.simulated, lastRoute.model).text}
             </span>
           ) : null}
           <em className="ide-agent__focus" title={activePath || undefined}>
@@ -2146,13 +2159,15 @@ export function IdeAgentPanel({
               <div className="ide-agent__decide">
                 <button
                   type="button"
-                  className={`ide-agent__route-foot is-${routeLabel(m.routeTier || m.decision?.route_tier).kind}`}
+                  className={`ide-agent__route-foot is-${routeLabel(m.routeTier || m.decision?.route_tier, false, m.model || m.decision?.model).kind}`}
                   onClick={() =>
                     setDecisionOpen((prev) => ({ ...prev, [`${i}`]: !prev[`${i}`] }))
                   }
                 >
-                  {routeLabel(m.routeTier || m.decision?.route_tier).text}
-                  {m.model || m.decision?.model ? ` · ${m.model || m.decision?.model}` : ""}
+                  {routeLabel(m.routeTier || m.decision?.route_tier, false, m.model || m.decision?.model).text}
+                  {m.model || m.decision?.model
+                    ? ` · ${formatRouteModel(m.model || m.decision?.model)}`
+                    : ""}
                   {` · ${ui.why}`}
                 </button>
                 {decisionOpen[`${i}`] && m.decision ? (

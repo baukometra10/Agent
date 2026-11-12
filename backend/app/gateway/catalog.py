@@ -107,7 +107,7 @@ def chief_catalog(*, openrouter_configured: bool = False) -> dict[str, Any]:
         "auto": {
             "id": "auto",
             "label": "Auto",
-            "detail": "داخلي أولاً → تصعيد للمعلّم عند الحاجة → تقطير للملكية",
+            "detail": "المعلّم المتصل (Cursor إن وُجد) → داخلي عند الجاهزية → تصعيد عند التعثر",
         },
         "groups": [
             {
@@ -116,13 +116,30 @@ def chief_catalog(*, openrouter_configured: bool = False) -> dict[str, Any]:
                 "models": SPIXA_MODELS,
             },
             {
-                "id": "other",
-                "label": "Other Models",
-                "models": OPENROUTER_TEACHERS,
+                "id": "teachers",
+                "label": "External teachers",
+                "models": [
+                    {
+                        "id": "cursor",
+                        "label": "Cursor Cloud Agent",
+                        "tier": "Teacher",
+                        "group": "teachers",
+                        "provider": "cursor",
+                        "detail": "معلّم Cursor المباشر",
+                    },
+                    *OPENROUTER_TEACHERS,
+                ],
             },
         ],
         "models": [
             {"id": "auto", "label": "Auto", "group": "auto", "tier": "", "provider": "auto"},
+            {
+                "id": "cursor",
+                "label": "Cursor Cloud Agent",
+                "group": "teachers",
+                "tier": "Teacher",
+                "provider": "cursor",
+            },
             *SPIXA_MODELS,
             *OPENROUTER_TEACHERS,
         ],
@@ -133,8 +150,11 @@ def resolve_chief_choice(choice: str | None) -> dict[str, Any]:
     """Normalize UI choice → routing hints for the gateway."""
     raw = (choice or "").strip()
     low = raw.lower()
-    if not raw or low in {"auto", "automatic", "cursor", "cursor_class"}:
+    if not raw or low in {"auto", "automatic"}:
+        # Auto follows TEACHER_UPSTREAM (Cursor when configured) — do not pin OpenRouter
         return {"mode": "auto", "preferred_provider": None, "preferred_model": None}
+    if low in {"cursor", "cursor_class", "cursor-agent", "cloud-agent"}:
+        return {"mode": "teacher", "preferred_provider": "cursor", "preferred_model": None}
     if low in {"internal", "spixa", "local", "spixa-internal", "spixa_internal"}:
         return {"mode": "internal", "preferred_provider": "internal", "preferred_model": None}
     if low in {"openrouter", "upstream"}:

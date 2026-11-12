@@ -130,20 +130,20 @@ class ModelGateway:
         return "none"
 
     def _use_openrouter_upstream(self) -> bool:
-        """True when the active (or fallback) teacher path is OpenRouter."""
+        """True when OpenRouter is the chosen teacher upstream (not merely a fallback)."""
         if not self._openrouter_ready():
             return False
-        active = self.active_teacher_upstream()
-        if active == "openrouter":
-            return True
-        # Cursor selected/active but call failed → OpenRouter remains usable as fallback
-        if active == "cursor" and self._cursor_ready():
-            return True
-        configured = (self.settings.teacher_upstream or "auto").strip().lower()
-        return configured in {"openrouter", "auto", ""}
+        return self.active_teacher_upstream() == "openrouter"
 
     def _use_cursor_upstream(self) -> bool:
         return self.active_teacher_upstream() == "cursor" and self._cursor_ready()
+
+    def _allow_openrouter_fallback(self) -> bool:
+        """Soft fallback only when upstream is auto (not when Cursor is forced)."""
+        if not self._openrouter_ready():
+            return False
+        configured = (self.settings.teacher_upstream or "auto").strip().lower() or "auto"
+        return configured in {"auto", ""}
 
     def provider_status(self) -> dict[str, Any]:
         openai_ok = bool((self.settings.openai_api_key or "").strip())
@@ -250,7 +250,12 @@ class ModelGateway:
         if pref_model:
             meta["preferred_model"] = pref_model
             meta["force_teacher"] = True
-            meta["force_provider"] = "openrouter" if self._use_openrouter_upstream() else pref_model.split("/", 1)[0]
+            provider_hint = pref_model.split("/", 1)[0].lower()
+            # Explicit slug (openai/…, anthropic/…) → OpenRouter/vendor, never Cursor
+            if provider_hint in {"openai", "anthropic", "google", "meta-llama", "qwen", "x-ai", "mistralai"}:
+                meta["force_provider"] = "openrouter" if self._openrouter_ready() else provider_hint
+            else:
+                meta["force_provider"] = provider_hint
         elif pref in {"openrouter", "upstream"}:
             meta["force_teacher"] = True
             meta["force_provider"] = "openrouter"
@@ -261,24 +266,35 @@ class ModelGateway:
             pref = "cursor"
         elif pref in {"openai", "gpt", "chatgpt"}:
             meta["force_teacher"] = True
-            meta["force_provider"] = "openrouter" if self._use_openrouter_upstream() else "openai"
-            if self._use_openrouter_upstream() and not meta.get("preferred_model"):
+            meta["force_provider"] = "openrouter" if self._openrouter_ready() else "openai"
+            if self._openrouter_ready() and not meta.get("preferred_model"):
                 meta["preferred_model"] = self.settings.default_coding_model
             pref = "openai"
         elif pref in {"anthropic", "claude"}:
             meta["force_teacher"] = True
-            meta["force_provider"] = "openrouter" if self._use_openrouter_upstream() else "anthropic"
-            if self._use_openrouter_upstream() and not meta.get("preferred_model"):
+            meta["force_provider"] = "openrouter" if self._openrouter_ready() else "anthropic"
+            if self._openrouter_ready() and not meta.get("preferred_model"):
                 meta["preferred_model"] = self.settings.default_critic_model
             pref = "anthropic"
         elif pref in {"internal", "spixa", "local"}:
             meta["force_internal"] = True
             pref = "internal"
+        elif not pref and not pref_model and not meta.get("force_internal"):
+            # Auto: pin the live upstream (Cursor when TEACHER_UPSTREAM=cursor/auto+key)
+            active = self.active_teacher_upstream()
+            if active == "cursor":
+                meta["force_teacher"] = True
+                meta["force_provider"] = "cursor"
+            elif active == "openrouter":
+                meta["force_teacher"] = True
+                meta["force_provider"] = "openrouter"
 
         decision = self.router.decide(role, metadata=meta)
         if decision.reason == "bootstrap_teacher_first":
             meta["bootstrap_teacher"] = True
             meta["teacher_upstream_active"] = self.active_teacher_upstream()
+            if not meta.get("force_provider") and self.active_teacher_upstream() == "cursor":
+                meta["force_provider"] = "cursor"
 
         # Cache lookup (role + chosen model + prompt)
         cache_key = ResponseCache.make_key(role.value, decision.model_id, prompt, system)
@@ -555,15 +571,27 @@ class ModelGateway:
                         raw={"provider": "cursor", "metadata": meta},
                     )
 
+        # OpenRouter: chosen upstream, explicit force, or soft fallback only when auto
         use_or = (
             force_provider == "openrouter"
             or active == "openrouter"
-            or (prefer_cursor and self._openrouter_ready())  # soft fallback after Cursor miss
-            or (active in {"auto", "none"} and self._openrouter_ready())
+            or (prefer_cursor and bool(teacher_errors) and self._allow_openrouter_fallback())
+            or (active in {"none"} and self._openrouter_ready())
         )
-        # Skip OpenRouter when we already know the only likely failure is empty credits
-        # and another vendor key exists — still try OR unless previous OR 402 is sticky.
         or_key = (self.settings.openrouter_api_key or "").strip()
+
+        # When Cursor is forced and failed, surface that error (no silent gpt-4.1 swap)
+        if prefer_cursor and force_provider == "cursor" and teacher_errors and not use_or:
+            joined = " | ".join(teacher_errors)[:800]
+            return ModelResponse(
+                role=role,
+                model_id="cursor/cloud-agent",
+                content=f"[provider-error:cursor] {joined}",
+                simulated=False,
+                error=joined,
+                route_tier=RouteTier.teacher.value,
+                raw={"provider": "cursor", "metadata": meta, "prior_errors": teacher_errors},
+            )
 
         # Preferred path: OpenRouter when live with credits
         if use_or and or_key and role != ModelRole.embedding and force_provider != "cursor":
