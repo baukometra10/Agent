@@ -93,6 +93,14 @@ class ProjectLongTermMemory:
         text = (content or "").strip()
         if not text:
             return {"stored": False, "reason": "empty"}
+        try:
+            from app.memory.pollution import is_pollution_text, strip_pollution
+
+            text = strip_pollution(text)
+            if not text or is_pollution_text(text):
+                return {"stored": False, "reason": "prompt_pollution"}
+        except Exception:  # noqa: BLE001
+            pass
 
         self._append_transcript(
             project,

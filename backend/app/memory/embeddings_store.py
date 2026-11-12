@@ -101,6 +101,14 @@ class ProjectEmbeddingsStore:
         cleaned = (text or "").strip()
         if not cleaned:
             return {"ok": False, "reason": "empty"}
+        try:
+            from app.memory.pollution import is_pollution_text, strip_pollution
+
+            cleaned = strip_pollution(cleaned)
+            if not cleaned or is_pollution_text(cleaned):
+                return {"ok": False, "reason": "prompt_pollution"}
+        except Exception:  # noqa: BLE001
+            pass
         vec = local_embed(cleaned)
         row_id = uuid4()
         row = {
@@ -208,6 +216,19 @@ class ProjectEmbeddingsStore:
                     }
                 )
 
+        try:
+            from app.memory.pollution import is_pollution_text, strip_pollution
+
+            clean_hits: list[dict[str, Any]] = []
+            for h in hits:
+                chunk = strip_pollution(str(h.get("text") or ""))
+                if not chunk or is_pollution_text(chunk):
+                    continue
+                h = {**h, "text": chunk}
+                clean_hits.append(h)
+            hits = clean_hits
+        except Exception:  # noqa: BLE001
+            pass
         hits.sort(key=lambda r: float(r["score"]), reverse=True)
         return {
             "project_id": str(project.id),
@@ -217,6 +238,48 @@ class ProjectEmbeddingsStore:
             "method": "owned_local_hash",
             "hits": hits[: max(1, min(top_k, 50))],
             "indexed": len(hits),
+        }
+
+    async def purge_pollution(self, project_id: UUID) -> dict[str, Any]:
+        """Drop scaffold/system-prompt vectors that poison Cursor replies."""
+        from app.memory.pollution import is_pollution_text
+
+        project = await self._project(project_id)
+        removed_db = 0
+        db_rows = await self.session.execute(
+            select(ProjectMemoryVector).where(ProjectMemoryVector.project_id == project_id)
+        )
+        for row in list(db_rows.scalars().all()):
+            if is_pollution_text(row.text or ""):
+                await self.session.delete(row)
+                removed_db += 1
+        await self.session.flush()
+
+        path = self._index_path(project)
+        removed_jsonl = 0
+        kept = 0
+        if path.exists():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            out: list[str] = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if is_pollution_text(str(row.get("text") or "")):
+                    removed_jsonl += 1
+                    continue
+                out.append(json.dumps(row, ensure_ascii=False))
+                kept += 1
+            path.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+        return {
+            "ok": True,
+            "project_id": str(project.id),
+            "removed_postgres": removed_db,
+            "removed_jsonl": removed_jsonl,
+            "kept_jsonl": kept,
         }
 
     async def stats(self, project_id: UUID) -> dict[str, Any]:

@@ -564,11 +564,24 @@ class MasterConductor:
         mem = context.get("memory") or {}
         binding = mem.get("binding") or {}
         standing = mem.get("standing_instructions") or []
-        standing_txt = "\n".join(f"- {s.get('content', '')[:220]}" for s in standing[:10])
-        semantic_hits = ((mem.get("semantic") or {}).get("hits") or [])[:5]
-        semantic_txt = "\n".join(
-            f"- ({h.get('score')}) {str(h.get('text') or '')[:200]}" for h in semantic_hits
-        )
+        from app.memory.pollution import is_pollution_text, strip_pollution
+
+        semantic_hits_raw = ((mem.get("semantic") or {}).get("hits") or [])[:12]
+        semantic_hits = []
+        for h in semantic_hits_raw:
+            chunk = strip_pollution(str(h.get("text") or ""))
+            if not chunk or is_pollution_text(chunk):
+                continue
+            semantic_hits.append(chunk[:180])
+            if len(semantic_hits) >= 4:
+                break
+        semantic_txt = "\n".join(f"- {t}" for t in semantic_hits)
+        standing_clean = []
+        for s in standing[:10]:
+            chunk = strip_pollution(str(s.get("content") or ""))
+            if chunk and not is_pollution_text(chunk):
+                standing_clean.append(chunk[:220])
+        standing_txt = "\n".join(f"- {t}" for t in standing_clean)
         tree = context.get("files") or {}
         file_names = tree.get("files") or tree.get("paths") or []
         if isinstance(file_names, list):

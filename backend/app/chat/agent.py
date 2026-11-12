@@ -448,13 +448,15 @@ class ChatAgentService:
             )
         )
         ltm = ProjectLongTermMemory(self.session)
-        # Every user word enters project-isolated long-term memory immediately
-        await ltm.remember_utterance(
-            project.id,
-            role="user",
-            content=user_message,
-            session_id=session.id,
-        )
+        # Store ONLY the real user ask — never the IDE scaffold wrapper (pollutes recall)
+        memory_user = (topic_source or self._extract_user_topic(user_message) or "").strip()
+        if memory_user:
+            await ltm.remember_utterance(
+                project.id,
+                role="user",
+                content=memory_user[:4000],
+                session_id=session.id,
+            )
         # Commit BEFORE the long model call so SQLite releases the write lock.
         # Otherwise opening a new tab/session while AI runs blocks forever.
         await self.session.commit()
@@ -513,30 +515,44 @@ class ChatAgentService:
                 },
             )
         )
-        await ltm.remember_utterance(
-            project.id,
-            role="assistant",
-            content=result["reply"],
-            session_id=sid,
-            meta={"intent": result.get("intent"), "conductor": result.get("conductor")},
-        )
+        from app.memory.pollution import is_pollution_text, strip_pollution
+
+        reply_text = result["reply"] or ""
+        clean_reply = strip_pollution(reply_text) or ""
+        if clean_reply and not is_pollution_text(clean_reply):
+            await ltm.remember_utterance(
+                project.id,
+                role="assistant",
+                content=clean_reply[:6000],
+                session_id=sid,
+                meta={"intent": result.get("intent"), "conductor": result.get("conductor")},
+            )
         # Learn from everything: successes fuel students; failures/errors become lessons
         journal = get_experience_journal()
-        reply_text = result["reply"] or ""
         is_error = reply_text.startswith("[provider-error") or bool(result.get("error"))
+        polluted = is_pollution_text(reply_text) or (not clean_reply and bool(reply_text.strip()))
         specialty = "coding" if result.get("intent") == "implement" else "reasoning"
         if is_error:
             experience = journal.record_error(
                 title="Chat provider/tool error",
-                detail=f"User: {user_message[:500]}\nReply: {reply_text[:1500]}",
+                detail=f"User: {memory_user[:500]}\nReply: {reply_text[:1500]}",
                 specialty=specialty,
                 project_id=project_id_str,
                 meta={"intent": result.get("intent")},
             )
             handoff = {"accepted": False, "reason": "logged_as_error_lesson"}
+        elif polluted:
+            experience = journal.record_error(
+                title="Prompt-pollution reply blocked from distill",
+                detail=f"User: {memory_user[:400]}\nPolluted reply skipped",
+                specialty=specialty,
+                project_id=project_id_str,
+                meta={"pollution": True},
+            )
+            handoff = {"accepted": False, "reason": "prompt_pollution"}
         else:
-            learn_user = (topic_source or self._extract_user_topic(user_message))[:2000]
-            learn_reply = reply_text[:4000]
+            learn_user = (memory_user or topic_source or "")[:2000]
+            learn_reply = clean_reply[:4000]
             experience = journal.record_success(
                 title="Chat success",
                 detail=f"User: {learn_user[:400]}\nReply: {learn_reply[:1200]}",

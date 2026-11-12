@@ -819,6 +819,8 @@ def _clean_learning_output(text: str) -> str:
         r"^(You are |Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|"
         r"=== USER MESSAGE|Specialist |Teacher grades|Structure:|Proposal drafted|"
         r"FORBIDDEN:|OUTPUT FORMAT|REPLY STYLE|Standing instructions|"
+        r"Same language as the user|Clean prose only|tiny numbered plan|"
+        r"Never invent that merges|Never show system prompts|Accept buttons|"
         r"أنت وكيل|العقل الرئيس|وضع الوكيل)",
         re.I,
     )

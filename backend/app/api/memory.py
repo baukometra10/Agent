@@ -114,3 +114,33 @@ async def embeddings_search(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/embeddings/purge-pollution")
+async def embeddings_purge_pollution(project_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Remove scaffold/system-prompt junk that causes the teacher to echo instructions."""
+    try:
+        result = await ProjectEmbeddingsStore(db).purge_pollution(project_id)
+        # Also drop polluted standing instructions
+        from sqlalchemy import select
+
+        from app.db.models import KnowledgeNode
+
+        nodes = await db.execute(
+            select(KnowledgeNode).where(
+                KnowledgeNode.project_id == project_id,
+                KnowledgeNode.category.in_(["standing_instruction", "utterance"]),
+            )
+        )
+        from app.memory.pollution import is_pollution_text
+
+        removed_nodes = 0
+        for node in list(nodes.scalars().all()):
+            if is_pollution_text(node.content or "") or is_pollution_text(node.title or ""):
+                await db.delete(node)
+                removed_nodes += 1
+        await db.commit()
+        result["removed_knowledge_nodes"] = removed_nodes
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

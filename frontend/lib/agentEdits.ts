@@ -255,11 +255,20 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*(?:start this agent from the workspace|available workspace).*$/gim, "")
     .replace(/^.*Noch keine Dateiänderung.*$/gim, "")
     .replace(/^.*Sag mir, welche Aufgabe.*$/gim, "")
+    .replace(/^.*Same language as the user.*$/gim, "")
+    .replace(/^.*Clean prose only.*$/gim, "")
+    .replace(/^.*tiny numbered plan.*$/gim, "")
+    .replace(/^.*Never invent that merges.*$/gim, "")
+    .replace(/^.*Never show system prompts.*$/gim, "")
+    .replace(/^.*Accept buttons.*$/gim, "")
+    .replace(/^.*file fences with FULL.*$/gim, "")
+    .replace(/^.*Ground the plan in the real project tree.*$/gim, "")
+    .replace(/^\s*\(\d+\.\d+\)\s*\d*\s*$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   const leak =
-    /^(أنت وكيل|العقل الرئيس|وضع الوكيل|وضع السؤال|وضع التعديل|شجرة المشروع|الطلب يبدو|عدّل فقط|طلب المستخدم|Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|=== USER MESSAGE|You are the Spixa|You are Spixa|REPLY STYLE|OUTPUT FORMAT|FORBIDDEN:|Standing instructions|Memory hits|Workspace files|You are the Spixa coding|:Context keys|Context keys|- knowledge:|- roadmap:|- files:|Specialist |Teacher grades|Structure:|Proposal drafted)/i;
+    /^(أنت وكيل|العقل الرئيس|وضع الوكيل|وضع السؤال|وضع التعديل|شجرة المشروع|الطلب يبدو|عدّل فقط|طلب المستخدم|Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|=== USER MESSAGE|You are the Spixa|You are Spixa|REPLY STYLE|OUTPUT FORMAT|FORBIDDEN:|Standing instructions|Memory hits|Workspace files|You are the Spixa coding|:Context keys|Context keys|- knowledge:|- roadmap:|- files:|Specialist |Teacher grades|Structure:|Proposal drafted|Same language as the user|Clean prose only|Never invent|Never show system|Accept buttons)/i;
 
   text = text
     .split(/\r?\n/)
@@ -278,6 +287,7 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
       if (/^[-*]\s*(knowledge|roadmap|files)\s*:/i.test(s)) return false;
       if (/awaiting_approval|مقترح بانتظار|بعد الاعتماد|مركز التنفيذ/i.test(s)) return false;
       if (/^(confirm understanding|tiny numbered plan|file fences)/i.test(s)) return false;
+      if (/^\(\d+\.\d+\)/.test(s) && s.length < 40) return false;
       return true;
     })
     .join("\n")
@@ -295,7 +305,13 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     return providerErrorUserMessage(providerErr, userMessage);
   }
 
-  if (!text || looksLikeBrokenFileDump(reply) || looksLikeBrokenModelReply(text, reply)) {
+  if (
+    !text ||
+    looksLikeBrokenFileDump(reply) ||
+    looksLikeBrokenModelReply(text, reply) ||
+    looksLikePromptLeak(text) ||
+    looksLikePromptLeak(reply)
+  ) {
     text = colleaguePlanReply(userMessage, edits);
   }
   return text;
@@ -342,6 +358,32 @@ export function looksLikeBrokenModelReply(clean: string, raw: string): boolean {
   if (/```\s*$/.test(c) && c.length < 40) return true;
   if (/^#\s*Initialize the workspace/i.test(c)) return true;
   if (c.length < 24 && /```|###|SPIXA/i.test(r)) return true;
+  if (looksLikePromptLeak(c) || looksLikePromptLeak(r)) return true;
+  return false;
+}
+
+/** Scaffold / system rules echoed back as if they were the answer. */
+export function looksLikePromptLeak(text: string): boolean {
+  const t = text || "";
+  const markers = [
+    /same language as the user/i,
+    /clean prose only/i,
+    /tiny numbered plan/i,
+    /never invent that merges/i,
+    /never show system prompts/i,
+    /accept buttons/i,
+    /file fences with FULL/i,
+    /Arabic\s*\/\s*German\s*\/\s*English/i,
+    /Ground the plan in the real project tree/i,
+  ];
+  const hits = markers.filter((re) => re.test(t)).length;
+  if (hits >= 2) return true;
+  // Repeated identical instruction blocks
+  if ((t.match(/Same language as the user/gi) || []).length >= 2) return true;
+  if ((t.match(/Clean prose only/gi) || []).length >= 2) return true;
+  // Bare embedding-score debris: "(0.2348) 1"
+  const scoreLines = (t.match(/^\s*\(\d+\.\d+\)\s*\d*\s*$/gm) || []).length;
+  if (scoreLines >= 2) return true;
   return false;
 }
 
