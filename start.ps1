@@ -39,6 +39,29 @@ function Stop-Port([int]$Port) {
     }
 }
 
+function Import-DotEnv([string]$Path) {
+    # Load KEY=VALUE into this process so Start-Process children inherit real secrets.
+    # Stale Process env (e.g. TEACHER_UPSTREAM=auto) must not override .env.
+    if (-not (Test-Path $Path)) { return }
+    Get-Content -Path $Path -Encoding UTF8 | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) { return }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) { return }
+        $name = $line.Substring(0, $eq).Trim()
+        $value = $line.Substring($eq + 1).Trim()
+        if ($value.Length -ge 2) {
+            $q = $value[0]
+            if (($q -eq [char]34 -or $q -eq [char]39) -and $value[-1] -eq $q) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+        }
+        if ($name -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
 function Get-PreferredApiPort {
     # Prefer fixed safe port (Hyper-V blocks ~7932-9031 including 8000)
     $preferred = 7000
@@ -146,6 +169,12 @@ function Stop-EvolvePythonOrphans {
         }
 }
 
+# Load root .env into this process BEFORE spawning API (pydantic env vars beat env_file).
+Import-DotEnv (Join-Path $Root ".env")
+$cursorLen = 0
+if ($env:CURSOR_API_KEY) { $cursorLen = $env:CURSOR_API_KEY.Length }
+Write-Host "==> Env: TEACHER_UPSTREAM=$($env:TEACHER_UPSTREAM) CURSOR_API_KEY_LEN=$cursorLen" -ForegroundColor DarkGray
+
 # Never silently reuse a zombie/orphan listener — clear Spixa API processes first.
 Stop-EvolvePythonOrphans
 if (-not (Test-PortFree $ApiPort)) {
@@ -224,14 +253,72 @@ if (-not (Test-Path (Join-Path $Frontend "node_modules"))) {
 $ApiLog = Join-Path $Logs "api.log"
 $UiLog = Join-Path $Logs "ui.log"
 
-if (-not (Test-ApiHealthy $ApiPort)) {
+# Re-apply .env after port/DB rewrites so teacher keys stay authoritative.
+Import-DotEnv (Join-Path $Root ".env")
+$env:DATABASE_URL = $DbUri
+$env:DATABASE_URL_SYNC = $DbSync
+$env:WORKSPACES_ROOT = $Workspaces
+$env:API_PORT = "$ApiPort"
+
+function Test-ApiTeacherReady([int]$Port) {
+    try {
+        $m = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/system/models" -TimeoutSec 3
+        $cursorOk = [bool]$m.providers.cursor.configured
+        $teacher = [string]$m.teacher_upstream
+        $active = [string]$m.teacher_upstream_active
+        # When .env asks for Cursor and key is present in this shell, running API must see it.
+        if ($env:CURSOR_API_KEY -and $env:CURSOR_API_KEY.Trim().Length -gt 0 -and -not $cursorOk) {
+            return $false
+        }
+        if ($env:TEACHER_UPSTREAM -and $env:TEACHER_UPSTREAM.Trim().ToLower() -eq "cursor" -and $teacher -ne "cursor") {
+            return $false
+        }
+        return ($cursorOk -or $active -in @("cursor", "openrouter", "openai", "anthropic") -or $teacher -eq "auto")
+    } catch {
+        return $false
+    }
+}
+
+$needApiStart = $true
+if ((Test-ApiHealthy $ApiPort) -and (Test-ApiTeacherReady $ApiPort)) {
+    $needApiStart = $false
+    Write-Host "    API already healthy with teacher keys." -ForegroundColor Green
+}
+
+if ($needApiStart) {
+    if (Test-ApiHealthy $ApiPort) {
+        Write-Host "==> API up but teacher keys missing/stale — restarting..." -ForegroundColor Yellow
+        Stop-Port $ApiPort
+        Stop-EvolvePythonOrphans
+        Start-Sleep -Seconds 2
+    }
     Write-Host "==> Starting API on http://127.0.0.1:$ApiPort ..." -ForegroundColor Green
+    $envFileForChild = (Join-Path $Root ".env") -replace "'", "''"
     $apiArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
         @"
-`$env:DATABASE_URL='$DbUri'
-`$env:DATABASE_URL_SYNC='$DbSync'
-`$env:WORKSPACES_ROOT='$Workspaces'
+# Load secrets from .env inside the child (never inherit stale TEACHER_UPSTREAM=auto).
+`$envPath = '$envFileForChild'
+if (Test-Path `$envPath) {
+  Get-Content -Path `$envPath -Encoding UTF8 | ForEach-Object {
+    `$line = `$_.Trim()
+    if (-not `$line -or `$line.StartsWith('#')) { return }
+    `$eq = `$line.IndexOf('=')
+    if (`$eq -lt 1) { return }
+    `$name = `$line.Substring(0, `$eq).Trim()
+    `$value = `$line.Substring(`$eq + 1).Trim()
+    if (`$value.Length -ge 2) {
+      `$q = `$value[0]
+      if ((`$q -eq [char]34 -or `$q -eq [char]39) -and `$value[-1] -eq `$q) {
+        `$value = `$value.Substring(1, `$value.Length - 2)
+      }
+    }
+    if (`$name -match '^[A-Za-z_][A-Za-z0-9_]*$') { Set-Item -Path ('Env:' + `$name) -Value `$value }
+  }
+}
+`$env:DATABASE_URL='$($DbUri -replace "'", "''")'
+`$env:DATABASE_URL_SYNC='$($DbSync -replace "'", "''")'
+`$env:WORKSPACES_ROOT='$($Workspaces -replace "'", "''")'
 `$env:API_PORT='$ApiPort'
 Set-Location '$Backend'
 # No --reload: on Windows it orphans multiprocessing workers that keep the port.
@@ -250,7 +337,11 @@ Set-Location '$Backend'
         if (Test-Path $ApiLog) { Get-Content $ApiLog -Tail 40 }
         throw "API did not start on port $ApiPort"
     }
-    Write-Host "    API healthy." -ForegroundColor Green
+    if (-not (Test-ApiTeacherReady $ApiPort)) {
+        Write-Host "    WARNING: API healthy but Cursor/teacher keys not visible to process." -ForegroundColor Yellow
+    } else {
+        Write-Host "    API healthy (teacher keys loaded)." -ForegroundColor Green
+    }
 }
 
 # Frontend
