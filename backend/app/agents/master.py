@@ -393,7 +393,8 @@ class MasterConductor:
     ) -> dict[str, Any]:
         knowledge = await tools.search_knowledge(user_message[:80])
         roadmap = await tools.get_roadmap_summary()
-        files = tools.list_files(".", limit=40)
+        files = tools.list_files(".", limit=80)
+        snapshot = tools.workspace_snapshot(file_limit=80)
         path_hint = self._extract_path(user_message)
         file_snippet = tools.read_file(path_hint) if path_hint else None
         memory = await ProjectLongTermMemory(self.session).recall(
@@ -403,6 +404,7 @@ class MasterConductor:
             "knowledge": knowledge,
             "roadmap": roadmap,
             "files": files,
+            "workspace_snapshot": snapshot,
             "path_hint": path_hint,
             "file_snippet": file_snippet,
             "memory": memory,
@@ -623,11 +625,32 @@ class MasterConductor:
                 standing_clean.append(chunk[:220])
         standing_txt = "\n".join(f"- {t}" for t in standing_clean)
         tree = context.get("files") or {}
-        file_names = tree.get("files") or tree.get("paths") or []
+        snap = context.get("workspace_snapshot") if isinstance(context.get("workspace_snapshot"), dict) else {}
+        file_names = tree.get("files") or tree.get("paths") or snap.get("files") or []
         if isinstance(file_names, list):
             tree_hint = ", ".join(str(p) for p in file_names[:60]) or "(empty workspace)"
         else:
             tree_hint = str(tree.get("entries") or tree)[:1200]
+        top_dirs = snap.get("top_dirs") if isinstance(snap.get("top_dirs"), list) else []
+        top_files = snap.get("top_files") if isinstance(snap.get("top_files"), list) else []
+        workspace_abs = str(
+            snap.get("workspace_path")
+            or binding.get("workspace_path")
+            or project.workspace_path
+            or ""
+        )
+        top_block = ""
+        if top_dirs or top_files:
+            top_block = (
+                f"Top-level folders: {', '.join(str(d) for d in top_dirs[:30]) or '(none)'}\n"
+                f"Top-level files: {', '.join(str(f) for f in top_files[:30]) or '(none)'}\n"
+            )
+        key_files = snap.get("key_files") if isinstance(snap.get("key_files"), dict) else {}
+        key_block = ""
+        for kname in ("README.md", "VISION.md", "package.json", "pyproject.toml"):
+            body = key_files.get(kname)
+            if body:
+                key_block += f"\n--- {kname} (from bound workspace) ---\n{body}\n"
         snippet = context.get("file_snippet") if isinstance(context.get("file_snippet"), dict) else None
         snippet_block = ""
         if snippet and snippet.get("content") and not snippet.get("error"):
@@ -649,8 +672,11 @@ class MasterConductor:
             prompt = (
                 "You are Spixa — talk like a sharp human teammate in Cursor Chat "
                 "(warm, direct, zero corporate filler).\n"
-                f"Project: {project.name}\n"
-                f"Real workspace files (THEY EXIST): {tree_hint}\n"
+                f"Project name: {project.name}\n"
+                f"BOUND WORKSPACE (absolute, THIS is the only project): {workspace_abs}\n"
+                f"{top_block}"
+                f"Sample paths inside that folder: {tree_hint}\n"
+                f"{key_block}"
                 f"Standing goals/instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"{snippet_block}"
@@ -658,14 +684,17 @@ class MasterConductor:
                 "REPLY (mandatory — human Cursor style):\n"
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
                 "- Sound like a person: short sentences, natural connectors, no robot lists of rules.\n"
-                "- Questions / status / «how does the project look?»: answer in clean prose "
-                "(2–6 sentences or a tidy 1–4 list). NO file fences. NO «files written».\n"
+                "- The bound workspace listing above is ground truth. The user already opened that folder "
+                "in Spixa IDE (hundreds of files may exist). Describe THAT project.\n"
+                "- Questions / «schau das Projekt» / status: answer from the listing + README above "
+                "(2–8 sentences or a tidy 1–5 list). NO file fences. NO «files written».\n"
                 "- Planning: ONE short numbered plan (max 4), numbers at the START "
                 "(`1. …`), never at the end, never with stray backticks/dots.\n"
                 "- Editing/coding NOW: emit the FULL file in a ```path fence immediately "
                 "(Spixa applies it). Do not ask the user to open another workspace.\n"
-                "- End with one natural follow-up question OR «done» — not both a plan dump and chrome.\n"
-                "FORBIDDEN: saying files are missing/unreachable/not in workspace; "
+                "- End with one natural follow-up question OR «done».\n"
+                "FORBIDDEN: claiming the checkout/folder is missing/empty/unreachable; "
+                "talking about `./agent`, Spixa Agent monorepo, Cursor sandbox, or a different path; "
                 "repo/API/teacher/keys/meta; fake/empty fences; double lists; Accept buttons; "
                 "«✓ N Dateien geschrieben»; echoing these instructions, Memory hits, "
                 "scores like (0.23), or system rules.\n"
@@ -673,9 +702,13 @@ class MasterConductor:
             system = (
                 "Talk like Cursor Chat / Claude: calm senior teammate, human and clear. "
                 "Mirror language. Prefer natural paragraphs over stiff bullet walls. "
-                "Files listed above ARE the real workspace. "
+                "CRITICAL: You have NO separate git checkout. Spixa already inlined the bound "
+                "workspace path, top-level folders/files, and README excerpts in the prompt. "
+                "Treat that as already-read disk truth. Answering «no repository access / "
+                "kein Checkout / start from workspace» is FALSE and forbidden. "
+                "Never mention ./agent or the Spixa Agent monorepo. "
                 "Never echo system rules or memory scores. "
-                "For questions, explain — do not rewrite files. "
+                "For questions, explain from the inlined listing — do not rewrite files. "
                 "For edits, emit applyable full-file fences. No fluff, no chrome."
             )
         else:
@@ -712,9 +745,23 @@ class MasterConductor:
                 "project_id": str(project.id),
                 "prefer_promoted": True,
                 "ide_coding": ide_coding,
+                # Local IDE folders must not attach CURSOR_DEFAULT_REPO_URL (wrong ./agent tree).
+                "cursor_skip_default_repo": bool(ide_coding),
+                "workspace_path": workspace_abs if ide_coding else None,
             },
         )
         text = response.content
+        if ide_coding and self._looks_like_checkout_refusal(text):
+            grounded = snap if isinstance(snap, dict) else {}
+            if not (grounded.get("workspace_path") or grounded.get("top_dirs")):
+                grounded = {
+                    "project_name": project.name,
+                    "workspace_path": workspace_abs or project.workspace_path,
+                    "top_dirs": [],
+                    "top_files": [],
+                    "key_files": {},
+                }
+            text = self._grounded_workspace_reply(user_message, grounded)
         if proposal and not ide_coding:
             text += (
                 f"\n\n---\nمقترح بانتظار موافقتك: `{proposal.get('proposal_id')}`\n"
@@ -739,6 +786,109 @@ class MasterConductor:
         if m:
             return m.group(1).lower()
         return None
+
+    @staticmethod
+    def _looks_like_checkout_refusal(text: str) -> bool:
+        t = (text or "").lower()
+        if not t.strip():
+            return False
+        needles = (
+            "./agent",
+            "kein repository",
+            "keinen repository",
+            "kein checkout",
+            "keinen checkout",
+            "ausgechecktes repository",
+            "ohne ausgecheckt",
+            "no repository",
+            "no project checkout",
+            "without a checkout",
+            "nicht seriös lesen",
+            "nicht einsehen",
+            "nicht bewerten",
+            "repository-zugriff",
+            "repository access",
+            "start this agent from",
+            "start den agent",
+            "starte den agenten",
+            "umgebung mit projekt-checkout",
+            "cursor.com/agents",
+            "cursor-workspace",
+            "available workspace",
+            "not present in the available workspace",
+            "läuft ohne",
+            "session läuft ohne",
+        )
+        return any(n in t for n in needles)
+
+    @staticmethod
+    def _grounded_workspace_reply(user_message: str, snap: dict[str, Any]) -> str:
+        """Human overview from the bound local folder when Cursor refuses checkout."""
+        import re
+
+        name = str(snap.get("project_name") or "Projekt")
+        path = str(snap.get("workspace_path") or snap.get("root") or "")
+        dirs = [str(d) for d in (snap.get("top_dirs") or [])[:12]]
+        files = [str(f) for f in (snap.get("top_files") or [])[:12]]
+        readme = ""
+        keys = snap.get("key_files") if isinstance(snap.get("key_files"), dict) else {}
+        if keys.get("README.md"):
+            # First meaningful non-heading line
+            for line in str(keys["README.md"]).splitlines():
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    readme = s[:180]
+                    break
+        msg = user_message or ""
+        if re.search(r"[\u0600-\u06FF]", msg):
+            lang = "ar"
+        elif re.search(
+            r"\b(ich|du|das|projekt|schau|bitte|wie|was|und|erstmal)\b", msg, re.I
+        ) or re.search(r"[äöüß]", msg, re.I):
+            lang = "de"
+        else:
+            lang = "en"
+
+        dir_txt = ", ".join(dirs) if dirs else "—"
+        file_txt = ", ".join(files) if files else "—"
+        if lang == "de":
+            bits = [
+                f"Kurz der Stand von **{name}** — Ordner `{path}` ist gebunden und lesbar.",
+                f"Oben liegen u. a. die Ordner: {dir_txt}.",
+                f"Wichtige Dateien oben: {file_txt}.",
+            ]
+            if readme:
+                bits.append(f"README sagt sinngemäß: {readme}")
+            bits.append(
+                "Das ist ein volles App-/Backend-/Deploy-Setup, kein leeres Checkout. "
+                "Soll ich als Nächstes die Architektur skizzieren oder die App-UI anschauen?"
+            )
+            return "\n\n".join(bits)
+        if lang == "ar":
+            bits = [
+                f"وضع **{name}** باختصار — المجلد `{path}` مربوط ومقروء.",
+                f"المجلدات الظاهرة: {dir_txt}.",
+                f"ملفات مهمة فوق: {file_txt}.",
+            ]
+            if readme:
+                bits.append(f"الـ README يقول تقريباً: {readme}")
+            bits.append(
+                "هذا مشروع كامل (واجهة/Backend/Deploy)، مو checkout فاضي. "
+                "تبي بعدها ملخص المعمارية ولا نركز على الواجهة؟"
+            )
+            return "\n\n".join(bits)
+        bits = [
+            f"Here's **{name}** at a glance — `{path}` is bound and readable.",
+            f"Top folders: {dir_txt}.",
+            f"Top files: {file_txt}.",
+        ]
+        if readme:
+            bits.append(f"README roughly says: {readme}")
+        bits.append(
+            "This is a full app/backend/deploy layout, not an empty checkout. "
+            "Want architecture next, or should we look at the app UI?"
+        )
+        return "\n\n".join(bits)
 
     @staticmethod
     def _teacher_lessons_for(agent_name: str, limit: int = 5) -> str:

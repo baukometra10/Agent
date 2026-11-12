@@ -523,12 +523,18 @@ class ModelGateway:
 
         if use_cursor and cursor_key:
             try:
+                # IDE local folders: never attach CURSOR_DEFAULT_REPO_URL — Cloud Agent
+                # would explore Spixa/Agent (./agent) instead of the bound Desktop project.
+                skip_repo = bool(meta.get("cursor_skip_default_repo") or meta.get("ide_coding"))
+                repo_url = None
+                if not skip_repo:
+                    repo_url = (self.settings.cursor_default_repo_url or "").strip() or None
                 content, tin, tout, raw = await cursor_cloud_agent_chat(
                     api_key=cursor_key,
                     prompt=prompt,
                     system=system,
                     base_url=self.settings.cursor_api_base_url,
-                    repo_url=(self.settings.cursor_default_repo_url or "").strip() or None,
+                    repo_url=repo_url,
                     poll_timeout_seconds=float(self.settings.cursor_poll_timeout_seconds),
                     poll_interval_seconds=float(self.settings.cursor_poll_interval_seconds),
                 )

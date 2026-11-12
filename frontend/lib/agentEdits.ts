@@ -295,6 +295,12 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*(?:start this agent from the workspace|available workspace).*$/gim, "")
     .replace(/^.*Noch keine Dateiänderung.*$/gim, "")
     .replace(/^.*Sag mir, welche Aufgabe.*$/gim, "")
+    // Cursor Cloud Agent confused with Spixa ./agent checkout / "no repo access"
+    .replace(/^.*(?:kein|keinen|no|not|ohne).{0,60}(?:checkout|repository|arbeitskopie|zugriff).*$/gim, "")
+    .replace(/^.*(?:unter|under|in)\s*`?\.?\/?agent`?.*$/gim, "")
+    .replace(/^.*(?:start(?:e)? den agent|start this agent|projekt-checkout|seriös lesen).*$/gim, "")
+    .replace(/^.*(?:Cursor[- ]?(?:Cloud )?Agent|Sandbox).{0,80}(?:nicht|no|missing|Zugriff).*$/gim, "")
+    .replace(/^.*(?:gebundenen Dateien|gelisteten Dateien).{0,40}(?:nicht|no).*$/gim, "")
     .replace(/^.*Same language as the user.*$/gim, "")
     .replace(/^.*Clean prose only.*$/gim, "")
     .replace(/^.*tiny numbered plan.*$/gim, "")

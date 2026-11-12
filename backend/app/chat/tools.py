@@ -37,12 +37,79 @@ class ProjectToolbelt:
                     rel = str(path.relative_to(self.root)).replace("\\", "/")
                 except ValueError:
                     continue
-                if any(p in path.parts for p in {".git", "node_modules", ".venv", "__pycache__"}):
+                if any(
+                    p in path.parts
+                    for p in {".git", "node_modules", ".venv", "__pycache__", ".pytest_cache"}
+                ):
                     continue
                 files.append(rel)
                 if len(files) >= limit:
                     break
         return {"files": files, "count": len(files), "root": str(self.root)}
+
+    def workspace_snapshot(self, *, file_limit: int = 80) -> dict[str, Any]:
+        """Shallow + key-file view of the bound folder (local IDE truth)."""
+        root = self.root
+        if not root.exists():
+            return {
+                "error": "workspace_missing",
+                "workspace_path": str(self.workspace),
+                "root": str(root),
+            }
+        skip = {".git", "node_modules", ".venv", "__pycache__", ".pytest_cache"}
+        top_dirs: list[str] = []
+        top_files: list[str] = []
+        try:
+            children = sorted(root.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except OSError as exc:
+            return {
+                "error": str(exc),
+                "workspace_path": str(self.workspace),
+                "root": str(root),
+            }
+        for child in children:
+            if child.name in skip or child.name.startswith(".venv"):
+                continue
+            if child.is_dir():
+                if child.name.startswith(".") and child.name not in {".github", ".spixa"}:
+                    continue
+                top_dirs.append(child.name)
+            elif child.is_file():
+                top_files.append(child.name)
+
+        key_names = (
+            "README.md",
+            "VISION.md",
+            "package.json",
+            "pyproject.toml",
+            "requirements.txt",
+            "docker-compose.yml",
+            "Dockerfile",
+            "main.py",
+            "index.html",
+            "app.js",
+            "styles.css",
+        )
+        key_files: dict[str, str] = {}
+        for name in key_names:
+            path = root / name
+            if path.is_file():
+                try:
+                    key_files[name] = path.read_text(encoding="utf-8", errors="ignore")[:2500]
+                except OSError:
+                    continue
+
+        listed = self.list_files(".", limit=file_limit)
+        return {
+            "workspace_path": str(self.workspace),
+            "root": str(root),
+            "project_name": self.project.name,
+            "top_dirs": top_dirs[:40],
+            "top_files": top_files[:40],
+            "files": listed.get("files") or [],
+            "file_count_sample": listed.get("count") or 0,
+            "key_files": key_files,
+        }
 
     def read_file(self, relative: str, max_chars: int = 12000) -> dict[str, Any]:
         target = assert_path_inside_workspace(self.workspace, (self.root / relative).resolve())
