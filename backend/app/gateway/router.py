@@ -664,12 +664,28 @@ class ModelGateway:
                 joined = " | ".join(teacher_errors)[:800]
                 return ModelResponse(
                     role=role,
-                    model_id=model_id,
+                    model_id=("cursor/cloud-agent" if prefer_cursor else model_id),
                     content=f"[provider-error:teachers] {joined}",
                     simulated=False,
                     error=joined,
                     route_tier=RouteTier.teacher.value,
                     raw={"provider": "teachers", "metadata": meta, "prior_errors": teacher_errors},
+                )
+            # Never fake a teacher answer when Cursor/OpenRouter is the intended upstream
+            if prefer_cursor or active in {"cursor", "openrouter"}:
+                why = (
+                    "cursor_key_missing_or_unused"
+                    if prefer_cursor
+                    else f"missing_{provider or active}_key"
+                )
+                return ModelResponse(
+                    role=role,
+                    model_id=("cursor/cloud-agent" if prefer_cursor else model_id),
+                    content=f"[provider-error:{active or provider}] {why}",
+                    simulated=False,
+                    error=why,
+                    route_tier=RouteTier.teacher.value,
+                    raw={"provider": active or provider, "metadata": meta},
                 )
             return self._simulate(
                 role,
