@@ -67,6 +67,36 @@ INTERNAL_BY_SPECIALTY = {
 }
 
 
+def clean_learning_text(text: str) -> str:
+    """Keep durable, clean student fuel — drop prompt leaks and agent meta."""
+    cleaned = text or ""
+    cleaned = re.sub(
+        r"<<<SPIXA_EDIT\s+[^\s>]+\s*>>>[\s\S]*?<<<END_SPIXA_EDIT>>>",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    drop = re.compile(
+        r"^(You are |Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|"
+        r"=== USER MESSAGE|Specialist |Teacher grades|Structure:|Proposal drafted|"
+        r"FORBIDDEN:|OUTPUT FORMAT|REPLY STYLE|Standing instructions|"
+        r"أنت وكيل|العقل الرئيس|وضع الوكيل|_?وكلاء شاركوا)",
+        re.I,
+    )
+    lines: list[str] = []
+    for line in cleaned.splitlines():
+        s = line.strip()
+        if not s:
+            lines.append("")
+            continue
+        if drop.match(s) or "SPIXA_EDIT" in s.upper():
+            continue
+        if re.search(r"\b(FullstackDeveloper|IndependentCritic|MasterOrchestrator)\b", s):
+            continue
+        lines.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
 class OwnershipHandoff:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -355,7 +385,7 @@ class OwnershipHandoff:
         if not self.settings.fast_handoff_enabled:
             return {"accepted": False, "reason": "fast_handoff_disabled"}
         user_text = (user_text or "").strip()
-        assistant_text = (assistant_text or "").strip()
+        assistant_text = clean_learning_text(assistant_text or "").strip()
         if len(user_text) < 4 or len(assistant_text) < 16:
             return {"accepted": False, "reason": "too_short"}
         if assistant_text.startswith("[provider-error") or "[internal-student:" in assistant_text:

@@ -239,7 +239,7 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .trim();
 
   const leak =
-    /^(أنت وكيل|العقل الرئيس|وضع الوكيل|وضع السؤال|وضع التعديل|شجرة المشروع|الطلب يبدو|عدّل فقط|طلب المستخدم|Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|=== USER MESSAGE|You are the Spixa|You are Spixa|:Context keys|Context keys|- knowledge:|- roadmap:|- files:|Specialist |Teacher grades|Structure:|Proposal drafted)/i;
+    /^(أنت وكيل|العقل الرئيس|وضع الوكيل|وضع السؤال|وضع التعديل|شجرة المشروع|الطلب يبدو|عدّل فقط|طلب المستخدم|Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|=== USER MESSAGE|You are the Spixa|You are Spixa|REPLY STYLE|OUTPUT FORMAT|FORBIDDEN:|Standing instructions|Memory hits|Workspace files|You are the Spixa coding|:Context keys|Context keys|- knowledge:|- roadmap:|- files:|Specialist |Teacher grades|Structure:|Proposal drafted)/i;
 
   text = text
     .split(/\r?\n/)
@@ -257,6 +257,7 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
       if (/^#\s*Initialize the workspace/i.test(s)) return false;
       if (/^[-*]\s*(knowledge|roadmap|files)\s*:/i.test(s)) return false;
       if (/awaiting_approval|مقترح بانتظار|بعد الاعتماد|مركز التنفيذ/i.test(s)) return false;
+      if (/^(confirm understanding|tiny numbered plan|file fences)/i.test(s)) return false;
       return true;
     })
     .join("\n")

@@ -67,6 +67,47 @@ async def test_local_first_then_escalate_to_teacher():
     assert router.metrics.teacher_ok >= 1
 
 
+def test_auto_teacher_upstream_prefers_cursor_when_live():
+    settings = Settings(
+        teacher_upstream="auto",
+        cursor_api_key="cursor-key",
+        openrouter_api_key="or-key",
+        model_gateway_force_simulate=False,
+    )
+    gateway = ModelGateway(settings=settings, router=IntelligentModelRouter(settings=settings))
+    assert gateway.active_teacher_upstream() == "cursor"
+    assert gateway._use_cursor_upstream() is True
+
+
+def test_stuck_internal_escalates_even_when_handoff_ready(monkeypatch):
+    settings = Settings(
+        openai_api_key="sk-live",
+        prefer_internal=True,
+        teacher_bootstrap_first=False,
+        prefer_promoted_internal=True,
+        promoted_no_escalate=True,
+        internal_confidence_threshold=0.55,
+        model_cache_enabled=False,
+        distillation_enabled=False,
+        model_gateway_force_simulate=False,
+    )
+    router = IntelligentModelRouter(settings=settings)
+    from app.gateway.types import ModelResponse, ModelRole
+
+    stuck = ModelResponse(
+        role=ModelRole.coding,
+        model_id="internal/coding",
+        content="I don't know how to continue",
+        simulated=False,
+    )
+    escalate, conf = router.should_escalate(
+        stuck,
+        metadata={"prefer_promoted": True, "ide_coding": True},
+    )
+    assert escalate is True
+    assert conf < 0.3
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_teacher_first_when_specialty_not_ready():
     settings = Settings(

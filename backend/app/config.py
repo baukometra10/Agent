@@ -76,8 +76,9 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str = "https://spixa.local"
     openrouter_app_name: str = "Spixa"
-    # openrouter = chat teachers; cursor = Cloud Agents API (coding teacher, async-ish)
-    teacher_upstream: str = "openrouter"
+    # auto = pick live teacher (Cursor → OpenRouter → vendor keys);
+    # openrouter | cursor force a specific upstream when that key is present.
+    teacher_upstream: str = "auto"
     model_gateway_force_simulate: bool = False
     # Cursor Cloud Agents API (https://api.cursor.com) — optional coding teacher
     cursor_api_key: str = ""

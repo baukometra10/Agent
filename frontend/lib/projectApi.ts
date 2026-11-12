@@ -51,42 +51,73 @@ export function apiBaseForProject(projectId: string): string {
   return hit || API_URL;
 }
 
+function forgetProjectApiBase(projectId: string) {
+  const id = String(projectId || "").trim();
+  if (!id) return;
+  const map = readHostMap();
+  if (!(id in map)) return;
+  delete map[id];
+  writeHostMap(map);
+}
+
+async function probeProjectOn(base: string, projectId: string): Promise<boolean> {
+  try {
+    const cleaned = base.replace(/\/$/, "");
+    const ctrl =
+      typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+        ? { signal: AbortSignal.timeout(2500) }
+        : {};
+    const res = await fetch(`${cleaned}/api/projects/${projectId}`, { cache: "no-store", ...ctrl });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve (and remember) the API that actually owns this project.
  * When NEXT_PUBLIC_API_URL points at a tunnel/cloud host, local-bound
  * projects still live on the disk agent — probe it once and stick.
+ * Stale/dead remembered hosts (old tunnels) are dropped automatically.
  */
 export async function resolveProjectApiBase(projectId: string): Promise<string> {
   const id = String(projectId || "").trim();
   if (!id) return API_URL.replace(/\/$/, "");
 
   const map = readHostMap();
-  if (map[id]) return map[id].replace(/\/$/, "");
-
-  if (isLoopback(API_URL)) {
-    rememberProjectApiBase(id, API_URL);
-    return API_URL.replace(/\/$/, "");
+  const remembered = map[id] ? map[id].replace(/\/$/, "") : "";
+  if (remembered) {
+    if (await probeProjectOn(remembered, id)) return remembered;
+    forgetProjectApiBase(id);
   }
+
+  const primary = API_URL.replace(/\/$/, "");
+  const candidates: string[] = [];
+  if (isLoopback(primary)) candidates.push(primary);
 
   try {
     const disk = await resolveDiskApiBase();
     if (!disk.unreachable && disk.diskBase) {
       const base = disk.diskBase.replace(/\/$/, "");
-      const ctrl =
-        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
-          ? { signal: AbortSignal.timeout(2500) }
-          : {};
-      const res = await fetch(`${base}/api/projects/${id}`, { cache: "no-store", ...ctrl });
-      if (res.ok) {
-        rememberProjectApiBase(id, base);
-        return base;
-      }
+      if (!candidates.includes(base)) candidates.push(base);
     }
   } catch {
-    /* fall through */
+    /* ignore */
   }
 
-  return API_URL.replace(/\/$/, "");
+  if (!candidates.includes(primary)) candidates.push(primary);
+  for (const extra of ["http://127.0.0.1:7000", "http://localhost:7000"]) {
+    if (!candidates.includes(extra)) candidates.push(extra);
+  }
+
+  for (const base of candidates) {
+    if (await probeProjectOn(base, id)) {
+      rememberProjectApiBase(id, base);
+      return base;
+    }
+  }
+
+  return primary;
 }
 
 async function fetchProjectsFrom(base: string): Promise<Project[]> {

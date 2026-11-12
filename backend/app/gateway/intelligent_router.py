@@ -131,6 +131,47 @@ def _specialty_teachers_retired(model_id: str) -> bool:
         return False
 
 
+_STUCK_MARKERS = (
+    "i don't know",
+    "i do not know",
+    "cannot help",
+    "can't help",
+    "unable to",
+    "as an ai",
+    "لا أعرف",
+    "لا استطيع",
+    "لا أستطيع",
+    "تعذر",
+    "nicht möglich",
+    "weiß ich nicht",
+    "kann ich nicht",
+)
+
+
+def looks_stuck(response: ModelResponse, meta: dict[str, Any] | None = None) -> bool:
+    """True when the owned student clearly failed or stalled — call live teachers."""
+    meta = meta or {}
+    if response.error:
+        return True
+    text = (response.content or "").strip()
+    if not text:
+        return True
+    if text.startswith("[provider-error"):
+        return True
+    if response.simulated and (
+        "[internal-student:" in text or "stub" in (response.raw or {})
+    ):
+        return True
+    low = text.lower()
+    if any(m in low for m in _STUCK_MARKERS):
+        return True
+    if meta.get("ide_coding") and "```" not in text and len(text) < 40:
+        return True
+    if meta.get("tools_ok") is False or meta.get("tests_ok") is False:
+        return True
+    return False
+
+
 def default_confidence(response: ModelResponse, meta: dict[str, Any]) -> float:
     """Evidence-oriented confidence — never trust model self-score alone."""
     if response.error:
@@ -138,6 +179,8 @@ def default_confidence(response: ModelResponse, meta: dict[str, Any]) -> float:
     if meta.get("force_teacher"):
         return 0.0
     text = response.content or ""
+    if looks_stuck(response, meta):
+        return 0.12
     if response.simulated and ("[internal-student:" in text or "stub" in (response.raw or {})):
         # Internal stub without hosted weights — low until real student is online
         return float(meta.get("stub_confidence", 0.35))
@@ -301,26 +344,34 @@ class IntelligentModelRouter:
         threshold = float(self.settings.internal_confidence_threshold)
         if meta.get("force_teacher"):
             return True, conf
-        # Phase 29: retired specialty → teachers off (except explicit force_teacher)
-        if _specialty_teachers_retired(response.model_id) and not meta.get("force_teacher"):
+        stuck = looks_stuck(response, meta)
+        # Retired specialty: skip teachers for normal traffic, but still escalate when stuck
+        if (
+            _specialty_teachers_retired(response.model_id)
+            and not meta.get("force_teacher")
+            and not stuck
+            and not response.error
+        ):
             return False, conf
-        if response.error:
+        if response.error or stuck:
             return True, conf
-        # Ownership handoff: promoted specialists stay internal unless forced/broken
+        # Ownership handoff: promoted specialists stay internal unless forced/broken/stuck
         if (
             self.settings.prefer_promoted_internal
             and self.settings.promoted_no_escalate
             and not response.error
             and not response.simulated
+            and not stuck
             and _specialty_promoted(response.model_id)
             and conf >= threshold
         ):
             return False, conf
-        # Hard prefer: specialty marked handoff_ready → do not escalate teachers
+        # Ready specialty: stay internal when confident; escalate immediately when stuck
         if (
             self.settings.prefer_promoted_internal
             and meta.get("prefer_promoted")
             and not response.error
+            and not stuck
             and not meta.get("force_teacher")
             and _specialty_handoff_ready(response.model_id)
             and conf >= max(0.4, threshold - 0.1)
@@ -412,12 +463,16 @@ class IntelligentModelRouter:
             "batch_pending": len(self._pending_batch),
             "mechanisms": [
                 "local_first",
+                "bootstrap_teacher_first",
+                "auto_teacher_upstream",
                 "prefer_promoted",
                 "teacher_retirement",
+                "stuck_escalate_to_teachers",
                 "confidence_routing",
                 "caching",
                 "batching",
                 "selective_distillation",
+                "learn_from_everything",
             ],
         }
 

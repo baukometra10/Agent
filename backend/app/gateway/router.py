@@ -83,21 +83,67 @@ class ModelGateway:
     def _cursor_ready(self) -> bool:
         return bool((self.settings.cursor_api_key or "").strip())
 
+    def active_teacher_upstream(self) -> str:
+        """Resolve which external teacher to run right now from live keys + config."""
+        if self.settings.model_gateway_force_simulate:
+            return "simulate"
+        configured = (self.settings.teacher_upstream or "auto").strip().lower() or "auto"
+        cursor_ok = self._cursor_ready()
+        openrouter_ok = self._openrouter_ready()
+        openai_ok = bool((self.settings.openai_api_key or "").strip())
+        anthropic_ok = bool((self.settings.anthropic_api_key or "").strip())
+
+        if configured == "cursor":
+            if cursor_ok:
+                return "cursor"
+            if openrouter_ok:
+                return "openrouter"
+            if openai_ok:
+                return "openai"
+            if anthropic_ok:
+                return "anthropic"
+            return "cursor"
+        if configured == "openrouter":
+            if openrouter_ok:
+                return "openrouter"
+            if cursor_ok:
+                return "cursor"
+            if openai_ok:
+                return "openai"
+            if anthropic_ok:
+                return "anthropic"
+            return "openrouter"
+        if configured in {"openai", "anthropic"} and (
+            (configured == "openai" and openai_ok) or (configured == "anthropic" and anthropic_ok)
+        ):
+            return configured
+
+        # auto: Cursor first when connected, then OpenRouter, then vendor keys
+        if cursor_ok:
+            return "cursor"
+        if openrouter_ok:
+            return "openrouter"
+        if openai_ok:
+            return "openai"
+        if anthropic_ok:
+            return "anthropic"
+        return "none"
+
     def _use_openrouter_upstream(self) -> bool:
-        """Use OpenRouter when explicitly selected, or as fallback if Cursor upstream isn't ready."""
-        upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
+        """True when the active (or fallback) teacher path is OpenRouter."""
         if not self._openrouter_ready():
             return False
-        if upstream == "openrouter":
+        active = self.active_teacher_upstream()
+        if active == "openrouter":
             return True
-        # Cursor selected but no key / not ready → keep OpenRouter usable
-        if upstream == "cursor" and not self._cursor_ready():
+        # Cursor selected/active but call failed → OpenRouter remains usable as fallback
+        if active == "cursor" and self._cursor_ready():
             return True
-        return False
+        configured = (self.settings.teacher_upstream or "auto").strip().lower()
+        return configured in {"openrouter", "auto", ""}
 
     def _use_cursor_upstream(self) -> bool:
-        upstream = (self.settings.teacher_upstream or "openrouter").strip().lower()
-        return upstream == "cursor" and self._cursor_ready()
+        return self.active_teacher_upstream() == "cursor" and self._cursor_ready()
 
     def provider_status(self) -> dict[str, Any]:
         openai_ok = bool((self.settings.openai_api_key or "").strip())
@@ -105,14 +151,13 @@ class ModelGateway:
         openrouter_ok = self._openrouter_ready()
         cursor_ok = self._cursor_ready()
         internal_hosted = bool((self.settings.internal_model_base_url or "").strip())
+        active_upstream = self.active_teacher_upstream()
         return {
             "force_simulate": bool(self.settings.model_gateway_force_simulate),
             "prefer_internal": bool(self.settings.prefer_internal),
-            "teacher_upstream": (self.settings.teacher_upstream or "openrouter"),
-            "teacher_upstream_live": self._use_openrouter_upstream()
-            or self._use_cursor_upstream()
-            or openai_ok
-            or anthropic_ok,
+            "teacher_upstream": (self.settings.teacher_upstream or "auto"),
+            "teacher_upstream_active": active_upstream,
+            "teacher_upstream_live": active_upstream not in {"none", "simulate"},
             "teacher_bootstrap_first": bool(
                 getattr(self.settings, "teacher_bootstrap_first", True)
             ),
@@ -231,6 +276,9 @@ class ModelGateway:
             pref = "internal"
 
         decision = self.router.decide(role, metadata=meta)
+        if decision.reason == "bootstrap_teacher_first":
+            meta["bootstrap_teacher"] = True
+            meta["teacher_upstream_active"] = self.active_teacher_upstream()
 
         # Cache lookup (role + chosen model + prompt)
         cache_key = ResponseCache.make_key(role.value, decision.model_id, prompt, system)
@@ -366,16 +414,32 @@ class ModelGateway:
             return
         if response.error or response.simulated:
             return
-        # Selective: distill when escalated or explicitly marked costly/recurring
-        if not (meta.get("escalated_from") or meta.get("distill") or meta.get("selective_distill")):
+        # Learn cleanly from every successful teacher turn (bootstrap + stuck escalate)
+        learn_all = bool(getattr(self.settings, "learn_from_everything", True))
+        if not (
+            meta.get("escalated_from")
+            or meta.get("distill")
+            or meta.get("selective_distill")
+            or meta.get("bootstrap_teacher")
+            or learn_all
+        ):
+            return
+        clean_out = _clean_learning_output(response.content or "")
+        if len(clean_out.strip()) < 16:
             return
         result = get_distillation_engine().ingest_teacher_output(
             role=role.value,
             prompt=prompt,
             system=system,
             teacher_model=response.model_id,
-            teacher_output=response.content,
-            metadata=meta,
+            teacher_output=clean_out,
+            metadata={
+                **meta,
+                "distill": True,
+                "selective_distill": True,
+                "source": meta.get("source")
+                or ("bootstrap_teacher" if meta.get("bootstrap_teacher") else "teacher_turn"),
+            },
         )
         response.raw = {**(response.raw or {}), "distillation": result}
 
@@ -644,6 +708,41 @@ def _safe_upstream(raw: dict[str, Any]) -> dict[str, Any]:
         "usage": usage,
         "type": raw.get("type"),
     }
+
+
+def _clean_learning_output(text: str) -> str:
+    """Strip prompt leaks / meta so teacher turns become clean student fuel."""
+    import re
+
+    cleaned = text or ""
+    cleaned = re.sub(
+        r"<<<SPIXA_EDIT\s+[^\s>]+\s*>>>[\s\S]*?<<<END_SPIXA_EDIT>>>",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    # Keep fenced code for coding distillation; drop obvious system/meta lines
+    drop = re.compile(
+        r"^(You are |Selected brain|Mode=|Project tree|LANGUAGE \(mandatory\)|"
+        r"=== USER MESSAGE|Specialist |Teacher grades|Structure:|Proposal drafted|"
+        r"FORBIDDEN:|OUTPUT FORMAT|REPLY STYLE|Standing instructions|"
+        r"أنت وكيل|العقل الرئيس|وضع الوكيل)",
+        re.I,
+    )
+    lines = []
+    for line in cleaned.splitlines():
+        s = line.strip()
+        if not s:
+            lines.append("")
+            continue
+        if drop.match(s):
+            continue
+        if "SPIXA_EDIT" in s.upper():
+            continue
+        lines.append(line)
+    out = "\n".join(lines)
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+    return out
 
 
 _gateway: ModelGateway | None = None

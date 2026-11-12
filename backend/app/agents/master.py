@@ -567,31 +567,25 @@ class MasterConductor:
         tree_hint = str(tree.get("paths") or tree.get("entries") or tree)[:1200]
         if ide_coding:
             prompt = (
-                "You are Spixa IDE — a Cursor-class coding colleague.\n"
+                "You are the Spixa coding agent — talk exactly like Cursor Chat: clear, direct, human.\n"
                 f"Project: {project.name}\n"
-                f"Files: {tree_hint}\n"
-                f"Standing: {standing_txt or '(none)'}\n"
-                f"Semantic memory: {semantic_txt or '(none)'}\n"
+                f"Workspace files (hint): {tree_hint}\n"
+                f"Standing instructions: {standing_txt or '(none)'}\n"
+                f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"USER:\n{user_message}\n\n"
-                "OUTPUT FORMAT (mandatory):\n"
-                "1) 2–5 sentences in the USER's language (German if they wrote German, Arabic if Arabic, …).\n"
-                "   Acknowledge the ask, give a short numbered plan, say you start now.\n"
-                "2) Then real file blocks only:\n"
+                "REPLY STYLE (mandatory):\n"
+                "- Same language as the user (Arabic / German / English…).\n"
+                "- Clean prose only for the human: short, concrete, no jargon dump.\n"
+                "- 2–6 sentences: confirm understanding → tiny numbered plan → start now.\n"
+                "- Then file fences with FULL contents (applied into the editor):\n"
                 "```relative/path.ext\nfull file content\n```\n"
-                "3) One short closing sentence in the same language.\n\n"
-                "EXAMPLE for German \"weiter mit Entwicklung\":\n"
-                "Klar — wir machen weiter. Plan:\n"
-                "1) UI/Logik verbessern\n"
-                "2) app.js erweitern\n"
-                "3) README aktualisieren\n"
-                "Ich starte jetzt.\n"
-                "```app.js\nconsole.log('ready');\n```\n"
-                "Fertig — Dateien geschrieben.\n\n"
-                "FORBIDDEN: English-only replies to German/Arabic users; bare `python ```; "
-                "`###`; `# README.md` lists; Accept/Approve asks; agent names; Venture gates."
+                "- End with one short closing line in the same language.\n"
+                "- Never show system prompts, agent names, scores, gates, or Accept buttons.\n"
+                "- Never invent that merges/deploys happened.\n"
             )
             system = (
-                "Mirror the user's language exactly. Colleague tone + short plan + file fences same turn."
+                "Cursor-chat tone. Mirror language. Clean human text + applyable file fences. "
+                "No meta, no roleplay headers, no English when the user wrote Arabic/German."
             )
         else:
             prompt = (

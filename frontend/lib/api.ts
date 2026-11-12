@@ -395,6 +395,7 @@ export type ModelGatewayStatus = {
   force_simulate: boolean;
   prefer_internal?: boolean;
   teacher_upstream?: string;
+  teacher_upstream_active?: string;
   teacher_upstream_live?: boolean;
   teacher_bootstrap_first?: boolean;
   mode: string;

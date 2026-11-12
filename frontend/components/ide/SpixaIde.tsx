@@ -146,8 +146,18 @@ export function SpixaIde({ initialProjectId }: { initialProjectId?: string }) {
 
   const reloadTree = useCallback(async (pid: string) => {
     if (!pid) return;
+    try {
+      const { resolveProjectApiBase } = await import("@/lib/projectApi");
+      await resolveProjectApiBase(pid);
+    } catch {
+      /* still attempt tree */
+    }
     const data = await fetchWorkspaceTree(pid);
-    setEntries(data.entries || []);
+    const rows = Array.isArray(data.entries) ? data.entries : [];
+    setEntries(rows);
+    if (!rows.length) {
+      setStatus("المستكشف فارغ — تأكد أن الـ API المحلي يعمل على المنفذ 7000 ثم حدّث المستكشف.");
+    }
   }, []);
 
   const refreshProjects = useCallback(async (preferId?: string, upsert?: Project) => {

@@ -277,7 +277,7 @@ export default function SettingsPage() {
           </div>
           <p className="settings-hint" style={{ marginTop: 12 }}>
             المصدر:{" "}
-            <span dir="ltr">{gateway?.teacher_upstream || "openrouter"}</span>
+            <span dir="ltr">{gateway?.teacher_upstream_active || gateway?.teacher_upstream || "auto"}</span>
             {gateway?.teacher_upstream_live ? " · متصل" : " · غير متصل"}
             . ضع <code dir="ltr">OPENROUTER_API_KEY</code> أو{" "}
             <code dir="ltr">CURSOR_API_KEY</code> في بيئة الخادم — في البداية يقود المعلّم الخارجي
