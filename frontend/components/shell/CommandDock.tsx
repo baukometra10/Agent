@@ -4,14 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { IdeAgentPanel } from "@/components/ide/IdeAgentPanel";
-import { fetchProjects } from "@/lib/api";
+import { createBlankProject, fetchProjects } from "@/lib/api";
 import { applyAgentEdits } from "@/lib/applyAgentEdits";
 import type { Project } from "@/lib/types";
 import { fetchWorkspaceTree } from "@/lib/workspace";
 
 /**
- * Global Spixa agent — same IdeAgentPanel as the IDE.
- * Hidden on /ide (panel already docked there). Ctrl/Cmd+J elsewhere.
+ * Global floating agent — identical IdeAgentPanel as the IDE.
+ * Accepts commands on every page (except /ide where the docked panel exists).
  */
 export function CommandDock() {
   const pathname = usePathname() || "";
@@ -22,13 +22,34 @@ export function CommandDock() {
   const [projectId, setProjectId] = useState("");
   const [treePaths, setTreePaths] = useState<string[]>([]);
   const [status, setStatus] = useState("");
+  const [booting, setBooting] = useState(false);
 
   const project = projects.find((p) => p.id === projectId) || null;
 
-  const loadProjects = useCallback(async () => {
-    const rows = await fetchProjects();
-    setProjects(rows);
-    setProjectId((cur) => cur || rows[0]?.id || "");
+  const ensureAgentProject = useCallback(async () => {
+    setBooting(true);
+    setStatus("");
+    try {
+      let rows = await fetchProjects();
+      if (!rows.length) {
+        const created = await createBlankProject({
+          name: "مساحة الأوامر",
+          description: "جلسة أوامر سريعة من زر الوكيل — نفس وكيل المحرر",
+        });
+        if (created) {
+          rows = [created];
+          setStatus("تم تجهيز مساحة أوامر تلقائياً — اكتب أمرك مباشرة.");
+        }
+      }
+      setProjects(rows);
+      setProjectId((cur) => {
+        if (cur && rows.some((p) => p.id === cur)) return cur;
+        return rows[0]?.id || "";
+      });
+      return rows[0]?.id || "";
+    } finally {
+      setBooting(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -36,8 +57,11 @@ export function CommandDock() {
   }, [hideOnIde]);
 
   useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
+    void fetchProjects().then((rows) => {
+      setProjects(rows);
+      setProjectId((cur) => cur || rows[0]?.id || "");
+    });
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -70,9 +94,9 @@ export function CommandDock() {
   }, [hideOnIde]);
 
   useEffect(() => {
-    if (!open) return;
-    void loadProjects();
-  }, [open, loadProjects]);
+    if (!open || hideOnIde) return;
+    void ensureAgentProject();
+  }, [open, hideOnIde, ensureAgentProject]);
 
   if (hideOnIde) return null;
 
@@ -82,28 +106,30 @@ export function CommandDock() {
         type="button"
         className={`cmd-fab ${open ? "is-open" : ""}`}
         onClick={() => setOpen((v) => !v)}
-        title="وكيل Spixa (Ctrl+J) — نفس وكيل مساحة العمل"
-        aria-label="فتح وكيل Spixa"
+        title="وكيل Spixa — اكتب أوامر (Ctrl+J)"
+        aria-label="فتح وكيل الأوامر"
+        aria-expanded={open}
       >
         <span className="cmd-fab__glyph">⌘</span>
         <span className="cmd-fab__label">الوكيل</span>
       </button>
 
       {open && (
-        <div className="cmd-dock cmd-dock--agent" role="dialog" aria-label="وكيل Spixa">
+        <div className="cmd-dock cmd-dock--agent" role="dialog" aria-label="وكيل الأوامر">
           <header className="cmd-dock__head">
             <div>
               <strong>وكيل Spixa</strong>
-              <span>نفس الوكيل داخل مساحة العمل — الجلسات مشتركة لكل مشروع</span>
+              <span>نفس ذكاء المحرر — اكتب أوامر، مقترحات، وتعديلات ملفات</span>
             </div>
             <div className="cmd-dock__head-actions">
               {projectId ? (
                 <Link
                   href={`/ide?project=${encodeURIComponent(projectId)}`}
                   className="btn btn-ghost"
+                  title="فتح نفس الجلسة في المحرر"
                   onClick={() => setOpen(false)}
                 >
-                  في المحرر
+                  المحرر
                 </Link>
               ) : null}
               <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
@@ -113,23 +139,31 @@ export function CommandDock() {
           </header>
 
           <div className="cmd-dock__project">
-            <label htmlFor="cmd-dock-project">المشروع</label>
+            <label htmlFor="cmd-dock-project">السياق</label>
             <select
               id="cmd-dock-project"
               value={projectId}
+              disabled={booting || !projects.length}
               onChange={(e) => setProjectId(e.target.value)}
             >
-              {!projects.length && <option value="">لا مشاريع — افتح مشروعاً أولاً</option>}
+              {booting && !projectId ? <option value="">جاري تجهيز مساحة الأوامر…</option> : null}
+              {!booting && !projects.length ? (
+                <option value="">تعذّر تجهيز مساحة — أعد المحاولة</option>
+              ) : null}
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
             </select>
-            {!projects.length ? (
-              <Link href="/projects" className="btn btn-primary" onClick={() => setOpen(false)}>
-                المشاريع
-              </Link>
+            {!projectId && !booting ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void ensureAgentProject()}
+              >
+                تجهيز
+              </button>
             ) : null}
           </div>
 
@@ -142,6 +176,7 @@ export function CommandDock() {
           {projectId ? (
             <div className="cmd-dock__agent">
               <IdeAgentPanel
+                key={projectId}
                 projectId={projectId}
                 activePath={null}
                 treePaths={treePaths}
@@ -153,7 +188,7 @@ export function CommandDock() {
                   }
                   setStatus(
                     edits.length
-                      ? `طُبّقت ${edits.length} تعديلات على ${project?.name || "المشروع"}`
+                      ? `طُبّقت ${edits.length} تعديلات على ${project?.name || "المساحة"}`
                       : "",
                   );
                   const tree = await fetchWorkspaceTree(projectId);
@@ -178,10 +213,20 @@ export function CommandDock() {
             </div>
           ) : (
             <div className="cmd-dock__empty">
-              <p>اربط مشروعاً من «المشاريع» ليبدأ الوكيل بنفس تجربة المحرر.</p>
-              <Link href="/projects" className="btn btn-primary" onClick={() => setOpen(false)}>
-                فتح المشاريع
-              </Link>
+              <p>
+                {booting
+                  ? "جاري فتح وكيل الأوامر…"
+                  : "اضغط «تجهيز» لبدء جلسة أوامر فورية — نفس وكيل المحرر."}
+              </p>
+              {!booting ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void ensureAgentProject()}
+                >
+                  بدء الأوامر الآن
+                </button>
+              ) : null}
             </div>
           )}
         </div>

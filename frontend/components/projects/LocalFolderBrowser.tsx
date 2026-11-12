@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  clientFallbackRoots,
   fetchLocalList,
   fetchLocalRoots,
   type LocalEntry,
@@ -33,17 +34,27 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
   const [showHidden, setShowHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [hint, setHint] = useState("");
   const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diskBaseRef = useRef("");
 
   const loadPath = useCallback(async (path: string, opts?: { q?: string; showHidden?: boolean }) => {
     const q = opts?.q ?? filterQ;
     const hidden = opts?.showHidden ?? showHidden;
     setBusy(true);
     setError("");
-    const data = await fetchLocalList(path, { showHidden: hidden, q });
+    const data = await fetchLocalList(path, {
+      showHidden: hidden,
+      q,
+      diskBase: diskBaseRef.current || undefined,
+    });
     setBusy(false);
     if (!data) {
-      setError("تعذّر قراءة المجلد — تأكد أن الـ API يعمل على نفس الجهاز.");
+      setError(
+        "تعذّر قراءة المجلد. شغّل الـ API محلياً (start.ps1 على المنفذ 7000) أو اكتب مساراً صالحاً على هذا الجهاز.",
+      );
+      setFolders([]);
+      setFiles([]);
       return;
     }
     setCurrent(data.path);
@@ -60,17 +71,53 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
     setFilterQ("");
     setSelected(null);
     setError("");
+    setHint("");
+    setFolders([]);
+    setFiles([]);
+    setCurrent("");
     (async () => {
-      const { roots: r } = await fetchLocalRoots();
+      const result = await fetchLocalRoots();
       if (cancelled) return;
-      setRoots(r);
+      diskBaseRef.current = result.diskBase;
+
+      let nextRoots = result.roots || [];
+      if (!nextRoots.length && result.home) {
+        nextRoots = [
+          {
+            id: "home",
+            path: result.home,
+            label: "home",
+            label_ar: "المجلد الشخصي",
+          },
+        ];
+      }
+      if (!nextRoots.length) {
+        nextRoots = clientFallbackRoots();
+      }
+      setRoots(nextRoots);
+
+      if (result.usedLocalFallback) {
+        setHint("يتم التصفح عبر الـ API المحلي على جهازك (السحابة لا ترى القرص).");
+      }
+
+      if (result.unreachable) {
+        setError(
+          "لا يوجد وكيل محلي لقراءة القرص. شغّل التطبيق محلياً (start.ps1) أو اكتب المسار يدوياً إن كان الـ API على نفس الجهاز.",
+        );
+        setPathInput(nextRoots[0]?.path || "C:\\Users");
+        return;
+      }
+
       const start =
-        r.find((x) => x.id === "desktop") ||
-        r.find((x) => x.id === "desktop_onedrive") ||
-        r.find((x) => x.id === "home") ||
-        r[0];
-      if (start) await loadPath(start.path, { q: "", showHidden: false });
-      else setError("لم يُعثر على مجلدات قابلة للتصفح على هذا الجهاز.");
+        nextRoots.find((x) => x.id === "desktop") ||
+        nextRoots.find((x) => x.id === "desktop_onedrive") ||
+        nextRoots.find((x) => x.id === "home") ||
+        nextRoots.find((x) => x.id === "c_users") ||
+        nextRoots[0];
+      if (start) {
+        setPathInput(start.path);
+        await loadPath(start.path, { q: "", showHidden: false });
+      }
     })();
     return () => {
       cancelled = true;
@@ -124,10 +171,7 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        className="folder-browser"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+      <div className="folder-browser" onMouseDown={(e) => e.stopPropagation()}>
         <header className="folder-browser__head">
           <div>
             <strong>اختر مجلدًا من جهازك</strong>
@@ -137,6 +181,8 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
             إغلاق
           </button>
         </header>
+
+        {hint ? <p className="folder-browser__hint">{hint}</p> : null}
 
         <div className="folder-browser__roots">
           {roots.map((r) => (
@@ -163,7 +209,7 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
                 goToTypedPath();
               }
             }}
-            placeholder="C:\\Users\\… أو مسار المجلد"
+            placeholder="C:\Users\… أو مسار المجلد"
             aria-label="مسار المجلد"
           />
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={goToTypedPath}>
@@ -268,7 +314,11 @@ export function LocalFolderBrowser({ open, onClose, onSelect }: Props) {
             ))}
           {!busy && !folders.length && !files.length && (
             <p className="folder-browser__empty">
-              {filterQ.trim() ? "لا نتائج للتصفية." : "المجلد فارغ."}
+              {filterQ.trim()
+                ? "لا نتائج للتصفية."
+                : current
+                  ? "المجلد فارغ."
+                  : "اكتب مساراً ثم اضغط انتقال، أو اختر قرصاً أعلاه."}
             </p>
           )}
         </div>

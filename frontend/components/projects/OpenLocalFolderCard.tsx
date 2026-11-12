@@ -32,7 +32,11 @@ export function OpenLocalFolderCard() {
     const result = await openLocalProjectFolder(local);
     setBusy(false);
     if (!result.ok) {
-      setMsg("تعذّر فتح المجلد — تأكد أن المسار موجود على جهازك وأن الـ API على نفس الجهاز.");
+      setMsg(
+        result.error === "local_api_unreachable"
+          ? "شغّل الـ API محلياً (start.ps1 على المنفذ 7000) حتى يمكن قراءة مجلدات جهازك."
+          : "تعذّر فتح المجلد — تأكد أن المسار موجود وأن الـ API المحلي يعمل على نفس الجهاز.",
+      );
       return;
     }
     const disk = result.project.workspace_path || result.project.source_uri || local;
