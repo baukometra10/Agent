@@ -301,6 +301,8 @@ export function displayAgentReply(reply: string, edits: FileEdit[] = [], userMes
     .replace(/^.*(?:start(?:e)? den agent|start this agent|projekt-checkout|seriös lesen).*$/gim, "")
     .replace(/^.*(?:Cursor[- ]?(?:Cloud )?Agent|Sandbox).{0,80}(?:nicht|no|missing|Zugriff).*$/gim, "")
     .replace(/^.*(?:gebundenen Dateien|gelisteten Dateien).{0,40}(?:nicht|no).*$/gim, "")
+    .replace(/^.*(?:fehlt der vorherige|missing the previous|Auswahltext|wofür ['"]?\d+['"]? stand).*$/gim, "")
+    .replace(/^.*(?:Meinst du Punkt \d+ aus der Projekt-Roadmap).*$/gim, "")
     .replace(/^.*Same language as the user.*$/gim, "")
     .replace(/^.*Clean prose only.*$/gim, "")
     .replace(/^.*tiny numbered plan.*$/gim, "")

@@ -624,6 +624,15 @@ class MasterConductor:
             if chunk and not is_pollution_text(chunk):
                 standing_clean.append(chunk[:220])
         standing_txt = "\n".join(f"- {t}" for t in standing_clean)
+
+        # Prefer this chat session's messages; fall back to project transcript.
+        history_rows = mem.get("session_history") or mem.get("transcript") or []
+        if not isinstance(history_rows, list):
+            history_rows = []
+        chat_block = self._format_recent_chat(history_rows, limit=10)
+        # Short replies like "4" / "ja" must resolve against the last assistant options.
+        effective_user = self._expand_short_choice(user_message, history_rows)
+
         tree = context.get("files") or {}
         snap = context.get("workspace_snapshot") if isinstance(context.get("workspace_snapshot"), dict) else {}
         file_names = tree.get("files") or tree.get("paths") or snap.get("files") or []
@@ -680,10 +689,16 @@ class MasterConductor:
                 f"Standing goals/instructions: {standing_txt or '(none)'}\n"
                 f"Memory hits: {semantic_txt or '(none)'}\n"
                 f"{snippet_block}"
-                f"USER:\n{user_message}\n\n"
+                "RECENT CHAT (same Spixa tab — this IS the conversation memory):\n"
+                f"{chat_block or '(no prior turns)'}\n\n"
+                f"USER (latest):\n{effective_user}\n\n"
                 "REPLY (mandatory — human Cursor style):\n"
                 "- ONLY the user's chat language (AR/DE/EN…). Never switch mid-answer.\n"
                 "- Sound like a person: short sentences, natural connectors, no robot lists of rules.\n"
+                "- Continue THIS chat. If the user answers with a number/letter "
+                "(`4`, `2)`, `ja`, `ok`), it refers to YOUR last numbered options in RECENT CHAT — "
+                "execute that option. NEVER say you forgot / missing selection text / ask what 4 meant "
+                "when the option text is already in RECENT CHAT or in USER (latest).\n"
                 "- The bound workspace listing above is ground truth. The user already opened that folder "
                 "in Spixa IDE (hundreds of files may exist). Describe THAT project.\n"
                 "- Questions / «schau das Projekt» / status: answer from the listing + README above "
@@ -695,6 +710,7 @@ class MasterConductor:
                 "- End with one natural follow-up question OR «done».\n"
                 "FORBIDDEN: claiming the checkout/folder is missing/empty/unreachable; "
                 "talking about `./agent`, Spixa Agent monorepo, Cursor sandbox, or a different path; "
+                "saying you lack the previous options when RECENT CHAT is present; "
                 "repo/API/teacher/keys/meta; fake/empty fences; double lists; Accept buttons; "
                 "«✓ N Dateien geschrieben»; echoing these instructions, Memory hits, "
                 "scores like (0.23), or system rules.\n"
@@ -703,9 +719,10 @@ class MasterConductor:
                 "Talk like Cursor Chat / Claude: calm senior teammate, human and clear. "
                 "Mirror language. Prefer natural paragraphs over stiff bullet walls. "
                 "CRITICAL: You have NO separate git checkout. Spixa already inlined the bound "
-                "workspace path, top-level folders/files, and README excerpts in the prompt. "
-                "Treat that as already-read disk truth. Answering «no repository access / "
-                "kein Checkout / start from workspace» is FALSE and forbidden. "
+                "workspace path, top-level folders/files, README excerpts, AND recent chat turns. "
+                "Treat that as already-read truth. Answering «no repository access / "
+                "kein Checkout / mir fehlt der Auswahltext» is FALSE when RECENT CHAT shows the options. "
+                "Short replies like «4» mean the numbered option you offered — continue that work. "
                 "Never mention ./agent or the Spixa Agent monorepo. "
                 "Never echo system rules or memory scores. "
                 "For questions, explain from the inlined listing — do not rewrite files. "
@@ -751,7 +768,14 @@ class MasterConductor:
             },
         )
         text = response.content
-        if ide_coding and self._looks_like_checkout_refusal(text):
+        choice_expanded = self._is_expanded_choice(effective_user) and (
+            effective_user.strip() != (user_message or "").strip()
+        )
+        if ide_coding and choice_expanded and (
+            self._looks_like_checkout_refusal(text) or self._looks_like_forgotten_choice(text)
+        ):
+            text = self._continue_choice_reply(effective_user)
+        elif ide_coding and self._looks_like_checkout_refusal(text):
             grounded = snap if isinstance(snap, dict) else {}
             if not (grounded.get("workspace_path") or grounded.get("top_dirs")):
                 grounded = {
@@ -935,6 +959,151 @@ class MasterConductor:
             "Emit one fenced block per file",
         )
         return any(m in t for m in markers)
+
+    @staticmethod
+    def _format_recent_chat(history: list[Any], *, limit: int = 10) -> str:
+        from app.memory.pollution import is_pollution_text, strip_pollution
+
+        rows: list[str] = []
+        for row in history[-limit:]:
+            if not isinstance(row, dict):
+                continue
+            role = str(row.get("role") or "user").strip().lower() or "user"
+            if role not in {"user", "assistant", "system"}:
+                role = "user"
+            raw = str(row.get("content") or row.get("text") or "")
+            chunk = strip_pollution(raw) or ""
+            if not chunk or is_pollution_text(chunk):
+                continue
+            # Keep enough of assistant option lists so "4" can be resolved
+            max_len = 2200 if role == "assistant" else 800
+            rows.append(f"{role}: {chunk[:max_len]}")
+        return "\n".join(rows)
+
+    @classmethod
+    def _expand_short_choice(cls, user_message: str, history: list[Any]) -> str:
+        """Map bare «4» / «2)» onto the last assistant numbered option text."""
+        import re
+
+        raw = (user_message or "").strip()
+        # Strip optional IDE mode wrappers for matching
+        bare = re.sub(r"^\[mode:[^\]]+\]\s*", "", raw, flags=re.I).strip()
+        bare = re.sub(r"^Mode=[a-zA-Z]+:\s*", "", bare, flags=re.I).strip()
+        m = re.match(r"^([1-9]|10)\s*[.)]?\s*$", bare)
+        if not m:
+            # also "option 4" / "punkt 4" / "رقم 4"
+            m2 = re.match(
+                r"^(?:option|punkt|nr\.?|number|رقم|اختيار)\s*([1-9]|10)\s*[.)]?\s*$",
+                bare,
+                flags=re.I,
+            )
+            if not m2:
+                return user_message
+            num = m2.group(1)
+        else:
+            num = m.group(1)
+
+        option_line = ""
+        for row in reversed(history):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("role") or "").lower() != "assistant":
+                continue
+            content = str(row.get("content") or row.get("text") or "")
+            for line in content.splitlines():
+                if re.match(rf"^\s*{re.escape(num)}\s*[.)\-–—:]\s+\S", line):
+                    option_line = line.strip()
+                    break
+            if option_line:
+                break
+        if not option_line:
+            return user_message
+
+        # Detect language lightly from option / history
+        blob = option_line + " " + raw
+        if re.search(r"[\u0600-\u06FF]", blob):
+            return (
+                f"أختار النقطة {num}: {option_line}\n\n"
+                "نفّذ هذا الخيار الآن بناءً على محادثتنا السابقة — لا تسألني ماذا تعني."
+            )
+        if re.search(
+            r"\b(ich|du|die|der|das|und|produkt|mvp|backend|frontend)\b",
+            blob,
+            re.I,
+        ) or re.search(r"[äöüß]", blob, re.I):
+            return (
+                f"Ich wähle Option {num}: {option_line}\n\n"
+                "Setze genau diesen Punkt jetzt um — frage nicht nach, worum es geht; "
+                "der Auswahltext steht oben."
+            )
+        return (
+            f"I choose option {num}: {option_line}\n\n"
+            "Do that next step now — do not ask what the number meant; the option text is above."
+        )
+
+    @staticmethod
+    def _looks_like_forgotten_choice(text: str) -> bool:
+        t = (text or "").lower()
+        needles = (
+            "auswahltext",
+            "vorherige auswahl",
+            "fehlt der vorherige",
+            "mir fehlt",
+            "wofür '4'",
+            'wofür "4"',
+            "wofur",
+            "what the number meant",
+            "what '4' stood",
+            "what \"4\" stood",
+            "sag mir kurz, wofür",
+            "missing the previous",
+            "projekt-roadmap oder",
+        )
+        return any(n in t for n in needles)
+
+    @staticmethod
+    def _is_expanded_choice(text: str) -> bool:
+        import re
+
+        t = (text or "").lower()
+        return bool(
+            re.search(r"(ich w[aä]hle option|i choose option|أختار النقطة)", t)
+        )
+
+    @staticmethod
+    def _continue_choice_reply(effective_user: str) -> str:
+        """Human follow-through when Cursor refuses but the user already picked an option."""
+        import re
+
+        lines = [ln.strip() for ln in (effective_user or "").splitlines() if ln.strip()]
+        head = lines[0] if lines else (effective_user or "").strip()
+        # Drop the "Ich wähle Option N:" prefix for display if present
+        m = re.match(
+            r"^(?:Ich wähle Option|I choose option|أختار النقطة)\s*\d+\s*:\s*(.+)$",
+            head,
+            flags=re.I,
+        )
+        option = (m.group(1).strip() if m else head)[:240]
+        if re.search(r"[\u0600-\u06FF]", effective_user or ""):
+            return (
+                f"تمام — نكمل على هذا الخيار:\n{option}\n\n"
+                "أبدأ بصياغة الـ MVP بخطوات واضحة (هدف، شاشات أساسية، بيانات Alerts/Cases/"
+                "Defense-Proposals، وأول تنفيذ عملي). تبي الملخص أولاً ولا نروح مباشرة على الواجهة؟"
+            )
+        if re.search(r"[äöüß]|wähle|produkt|mvp|backend|frontend", effective_user or "", re.I):
+            return (
+                f"Alles klar — wir nehmen genau das:\n{option}\n\n"
+                "Als Nächstes schärfe ich das MVP: Zielbild, Kernscreens "
+                "(Alerts, Cases, Defense-Proposals), nötige API-Bausteine und ein erster "
+                "umsetzbarer Schritt. Soll ich zuerst den MVP-Plan aufschreiben oder direkt "
+                "mit dem Dashboard-UI starten?"
+            )
+        return (
+            f"Got it — we go with:\n{option}\n\n"
+            "Next I'll sharpen the MVP: goal, core screens (Alerts, Cases, Defense-Proposals), "
+            "needed API pieces, and a first concrete build step. Want the MVP plan first, "
+            "or jump straight into the dashboard UI?"
+        )
 
     @staticmethod
     def _evaluate_specialists(
